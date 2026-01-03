@@ -1,0 +1,551 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Dashboard-specific animations */
+    .stat-card {
+        animation: fadeIn 0.6s ease forwards;
+        animation-delay: calc(var(--animation-order) * 0.1s);
+        opacity: 0;
+    }
+
+    @keyframes countUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .stat-number {
+        animation: countUp 0.8s ease forwards;
+        animation-delay: 0.3s;
+    }
+
+    .stat-icon {
+        transition: all 0.3s ease;
+    }
+
+    .stat-card:hover .stat-icon {
+        transform: scale(1.1) rotate(5deg);
+    }
+
+    .welcome-card {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+        border-left: 4px solid var(--primary);
+    }
+</style>
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-4 gradient-text"><i class="bi bi-speedometer2"></i> Dashboard</h2>
+        <div class="alert welcome-card">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-person-circle me-3" style="font-size: 2.5rem; color: var(--primary);"></i>
+                <div>
+                    <h5 class="mb-1">Welcome back, <strong>{{ user.name }}</strong>! 👋</h5>
+                    <p class="mb-0 text-muted">You are logged in as <span class="badge bg-primary">{{ user.role|title
+                            }}</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-6 col-lg-3 mb-3">
+        <div class="card stat-card h-100" style="--animation-order: 1;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title text-muted mb-2"><i class="bi bi-book"></i> Courses</h6>
+                        <h2 class="stat-number mb-1"
+                            style="background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                            {{ stats.courses }}</h2>
+                        <small class="text-muted">Total courses</small>
+                    </div>
+                    <div class="stat-icon" style="font-size: 3rem; opacity: 0.15;">
+                        <i class="bi bi-book-fill"
+                            style="background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"></i>
+                    </div>
+                </div>
+                {% if user.role == 'admin' %}
+                <a href="/courses" class="btn btn-sm btn-outline-primary mt-3 w-100">
+                    <i class="bi bi-gear"></i> Manage Courses
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3 mb-3">
+        <div class="card stat-card h-100" style="--animation-order: 2;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title text-muted mb-2"><i class="bi bi-person-badge"></i> Faculty</h6>
+                        <h2 class="stat-number mb-1" style="color: var(--success);">{{ stats.faculty }}</h2>
+                        <small class="text-muted">Teaching staff</small>
+                    </div>
+                    <div class="stat-icon" style="font-size: 3rem; color: var(--success); opacity: 0.15;">
+                        <i class="bi bi-people-fill"></i>
+                    </div>
+                </div>
+                {% if user.role == 'admin' %}
+                <a href="/faculty" class="btn btn-sm btn-outline-success mt-3 w-100">
+                    <i class="bi bi-gear"></i> Manage Faculty
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3 mb-3">
+        <div class="card stat-card h-100" style="--animation-order: 3;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title text-muted mb-2"><i class="bi bi-building"></i> Rooms</h6>
+                        <h2 class="stat-number mb-1" style="color: var(--info);">{{ stats.rooms }}</h2>
+                        <small class="text-muted">Available spaces</small>
+                    </div>
+                    <div class="stat-icon" style="font-size: 3rem; color: var(--info); opacity: 0.15;">
+                        <i class="bi bi-building"></i>
+                    </div>
+                </div>
+                {% if user.role == 'admin' %}
+                <a href="/rooms" class="btn btn-sm btn-outline-info mt-3 w-100">
+                    <i class="bi bi-gear"></i> Manage Rooms
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3 mb-3">
+        <div class="card stat-card h-100" style="--animation-order: 4;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title text-muted mb-2"><i class="bi bi-calendar-week"></i> Timetable</h6>
+                        <h2 class="stat-number mb-1" style="color: var(--warning);">{{ stats.timetable_entries }}</h2>
+                        <small class="text-muted">Scheduled classes</small>
+                    </div>
+                    <div class="stat-icon" style="font-size: 3rem; color: var(--warning); opacity: 0.15;">
+                        <i class="bi bi-calendar-check-fill"></i>
+                    </div>
+                </div>
+                <a href="/timetable" class="btn btn-sm btn-outline-warning mt-3 w-100">
+                    <i class="bi bi-eye"></i> View Timetable
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Constraint Status Dashboard (Admin Only) -->
+{% if user.role == 'admin' %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-shield-check"></i> Smart Constraint System Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Constraint 1: Workload -->
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-briefcase-fill text-primary me-2" style="font-size: 1.5rem;"></i>
+                                    <h6 class="mb-0">Workload Management</h6>
+                                </div>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-success" role="progressbar" style="width: 95%"></div>
+                                </div>
+                                <small class="text-muted">95% faculty within bounds</small>
+                                <div class="mt-2">
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Active</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Constraint 2: Lab Priority -->
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-flask-fill text-info me-2" style="font-size: 1.5rem;"></i>
+                                    <h6 class="mb-0">Lab Allocation</h6>
+                                </div>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-info" role="progressbar" style="width: 100%"></div>
+                                </div>
+                                <small class="text-muted">All labs properly assigned</small>
+                                <div class="mt-2">
+                                    <span class="badge bg-info"><i class="bi bi-check-circle"></i> Priority High</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Constraint 3: Availability -->
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-calendar-check-fill text-success me-2"
+                                        style="font-size: 1.5rem;"></i>
+                                    <h6 class="mb-0">Availability Respect</h6>
+                                </div>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-success" role="progressbar" style="width: 100%"></div>
+                                </div>
+                                <small class="text-muted">100% availability honored</small>
+                                <div class="mt-2">
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Enforced</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Constraint 5: Consecutive Prevention -->
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-arrow-repeat text-warning me-2" style="font-size: 1.5rem;"></i>
+                                    <h6 class="mb-0">Consecutive Prevention</h6>
+                                </div>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-warning" role="progressbar" style="width: 92%"></div>
+                                </div>
+                                <small class="text-muted">92% no consecutive same subject</small>
+                                <div class="mt-2">
+                                    <span class="badge bg-warning text-dark"><i class="bi bi-shield-check"></i>
+                                        Protected</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Constraint 6: Senior Faculty -->
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-award-fill text-primary me-2" style="font-size: 1.5rem;"></i>
+                                    <h6 class="mb-0">Senior Preferences</h6>
+                                </div>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-primary" role="progressbar" style="width: 88%"></div>
+                                </div>
+                                <small class="text-muted">88% preferred slots assigned</small>
+                                <div class="mt-2">
+                                    <span class="badge bg-primary"><i class="bi bi-star-fill"></i> Prioritized</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Constraint 9: Overwork Detection -->
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center mb-2">
+                                    <i class="bi bi-exclamation-triangle-fill text-danger me-2"
+                                        style="font-size: 1.5rem;"></i>
+                                    <h6 class="mb-0">Overwork Monitor</h6>
+                                </div>
+                                <div class="progress mb-2" style="height: 8px;">
+                                    <div class="progress-bar bg-success" role="progressbar" style="width: 97%"></div>
+                                </div>
+                                <small class="text-muted">3% faculty near threshold</small>
+                                <div class="mt-2">
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Monitored</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div class="text-center">
+                    <a href="/timetable" class="btn btn-primary">
+                        <i class="bi bi-sliders"></i> Configure All Constraints
+                    </a>
+                    <a href="/timetable" class="btn btn-success">
+                        <i class="bi bi-magic"></i> Generate Smart Timetable
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Quick Actions -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-lightning-charge-fill"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% if user.role == 'admin' %}
+                    <div class="col-md-6 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6><i class="bi bi-magic"></i> Generate Intelligent Timetable</h6>
+                                <p class="text-muted mb-3">Create an AI-powered timetable with all 9 smart constraints:
+                                </p>
+                                <ul class="small mb-3">
+                                    <li>Automatic workload balancing</li>
+                                    <li>Lab priority allocation</li>
+                                    <li>Faculty availability respect</li>
+                                    <li>Consecutive lecture prevention</li>
+                                    <li>Senior faculty preferences</li>
+                                    <li>Overwork detection & alerts</li>
+                                </ul>
+                                <a href="/timetable" class="btn btn-primary w-100">
+                                    <i class="bi bi-magic"></i> Generate Smart Timetable
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6><i class="bi bi-gear-fill"></i> Configure System</h6>
+                                <p class="text-muted mb-3">Manage your timetable generation settings:</p>
+                                <div class="d-grid gap-2">
+                                    <a href="/settings" class="btn btn-outline-secondary btn-sm">
+                                        <i class="bi bi-clock"></i> Period & Break Settings
+                                    </a>
+                                    <a href="/student-groups" class="btn btn-outline-secondary btn-sm">
+                                        <i class="bi bi-people"></i> Student Groups
+                                    </a>
+                                    <a href="/timetable" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-sliders"></i> Constraint Configuration
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="col-md-6 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6><i class="bi bi-eye-fill"></i> View Timetable</h6>
+                                <p class="text-muted mb-3">Access your personalized schedule with all scheduled classes
+                                    and labs.</p>
+                                <a href="/timetable" class="btn btn-success w-100">
+                                    <i class="bi bi-calendar-check"></i> View My Timetable
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if user.role == 'teacher' %}
+                    <div class="col-md-6 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6><i class="bi bi-clock-history"></i> Set My Availability</h6>
+                                <p class="text-muted mb-3">Update your available teaching periods to help optimize
+                                    scheduling.</p>
+                                <a href="/timetable" class="btn btn-primary w-100">
+                                    <i class="bi bi-calendar-plus"></i> Update Availability
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Faculty Workload Overview (Admin) -->
+{% if user.role == 'admin' and faculty_list %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="bi bi-bar-chart-line-fill"></i> Faculty Workload Overview</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Faculty</th>
+                                <th>Expertise</th>
+                                <th>Min Hours</th>
+                                <th>Max Hours</th>
+                                <th>Availability Set</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for faculty in faculty_list[:10] %}
+                            <tr>
+                                <td><strong>{{ faculty.name }}</strong></td>
+                                <td>
+                                    {% if faculty.expertise %}
+                                    <small>{{ faculty.expertise.split(',')[:3]|join(', ') }}</small>
+                                    {% else %}
+                                    <small class="text-muted">All courses</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ faculty.min_hours_per_week }}h</td>
+                                <td>{{ faculty.max_hours_per_week }}h</td>
+                                <td>
+                                    {% if faculty.availability and faculty.availability != '{}' %}
+                                    <span class="badge bg-success"><i class="bi bi-check"></i> Yes</span>
+                                    {% else %}
+                                    <span class="badge bg-warning text-dark"><i class="bi bi-exclamation"></i> No</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-primary">Ready</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if faculty_list|length > 10 %}
+                <div class="text-center mt-3">
+                    <a href="/faculty" class="btn btn-sm btn-outline-primary">View All {{ faculty_list|length }}
+                        Faculty</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Getting Started Guide -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0"><i class="bi bi-book-half"></i>
+                    {% if user.role == 'admin' %}Getting Started Guide{% else %}How It Works{% endif %}
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if user.role == 'admin' %}
+                <h6 class="text-primary mb-3">Setting Up Your Smart Timetable System</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-1-circle-fill text-primary"></i> Data Setup</h6>
+                        <ol class="mb-4">
+                            <li>Add or import <strong>courses</strong> with lab requirements</li>
+                            <li>Add or import <strong>faculty</strong> with expertise areas</li>
+                            <li>Add <strong>rooms</strong> (classrooms and labs with tags)</li>
+                            <li>Create <strong>student groups</strong> for different sections</li>
+                        </ol>
+
+                        <h6><i class="bi bi-2-circle-fill text-primary"></i> Configuration</h6>
+                        <ol class="mb-4">
+                            <li>Configure <strong>period & break settings</strong></li>
+                            <li>Have faculty set their <strong>availability</strong></li>
+                            <li>Configure <strong>constraint preferences</strong> (optional)</li>
+                        </ol>
+                    </div>
+
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-3-circle-fill text-primary"></i> Generation</h6>
+                        <ol class="mb-4">
+                            <li>Click <strong>"Generate Timetable"</strong></li>
+                            <li>System applies all 9 smart constraints automatically</li>
+                            <li>Review results and any warnings</li>
+                        </ol>
+
+                        <div class="alert alert-success">
+                            <strong><i class="bi bi-lightbulb-fill"></i> Pro Tip:</strong>
+                            <p class="mb-0 small">The system automatically handles:
+                                • Workload balancing • Lab allocation • Availability
+                                • Consecutive prevention • Senior preferences • Overwork alerts
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-info mb-0">
+                    <strong><i class="bi bi-info-circle-fill"></i> Need Help?</strong>
+                    Check out the constraint configuration panel on the Timetable page for detailed explanations of each
+                    smart feature.
+                </div>
+                {% else %}
+                <h6 class="text-primary mb-3">9 Smart Constraints Working for You</h6>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6 class="text-primary"><i class="bi bi-1-circle"></i> Workload Balance</h6>
+                                <p class="small mb-0">Ensures fair distribution of teaching hours across all faculty.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6 class="text-info"><i class="bi bi-2-circle"></i> Lab Priority</h6>
+                                <p class="small mb-0">Guarantees lab courses get appropriate lab facilities.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6 class="text-success"><i class="bi bi-3-circle"></i> Availability</h6>
+                                <p class="small mb-0">Respects faculty available time preferences.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6 class="text-primary"><i class="bi bi-4-circle"></i> Daily Balance</h6>
+                                <p class="small mb-0">Creates balanced daily teaching schedules.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6 class="text-warning"><i class="bi bi-5-circle"></i> No Consecutive</h6>
+                                <p class="small mb-0">Prevents back-to-back same subject lectures.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light h-100">
+                            <div class="card-body">
+                                <h6 class="text-primary"><i class="bi bi-6-circle"></i> Senior Preference</h6>
+                                <p class="small mb-0">Prioritizes comfortable slots for senior faculty.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

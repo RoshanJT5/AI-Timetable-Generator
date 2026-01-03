@@ -1,0 +1,14 @@
+Flask==3.0.0
+pymongo>=4.0
+pulp==2.7.0
+openpyxl==3.1.2
+xlsxwriter==3.1.9
+werkzeug==3.0.1
+dnspython>=2.4
+python-dotenv>=1.0.0
+gunicorn==21.2.0
+bcrypt==4.1.2
+celery==5.3.6
+redis==5.0.1
+PyJWT==2.8.0
+pyinstrument==4.6.1

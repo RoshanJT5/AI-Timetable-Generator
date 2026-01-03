@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - PlanSphere.AI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-4"><i class="bi bi-gear"></i> Timetable Settings</h2>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Period Configuration -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-clock"></i> Period Configuration</h5>
+            </div>
+            <div class="card-body">
+                <form id="periodConfigForm">
+                    <div class="mb-3">
+                        <label class="form-label">Periods Per Day *</label>
+                        <input type="number" class="form-control" name="periods_per_day"
+                            value="{{ period_config.periods_per_day if period_config else 8 }}" min="1" max="12"
+                            step="1" pattern="\d*" onkeypress="return event.charCode >= 48 && event.charCode <= 57"
+                            required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Period Duration (minutes) *</label>
+                        <input type="number" class="form-control" name="period_duration_minutes"
+                            value="{{ period_config.period_duration_minutes if period_config else 60 }}" min="30"
+                            max="120" step="1" pattern="\d*"
+                            onkeypress="return event.charCode >= 48 && event.charCode <= 57" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Day Start Time *</label>
+                        <input type="time" class="form-control" name="day_start_time"
+                            value="{{ period_config.day_start_time if period_config else '09:00' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Days of Week *</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="days" value="Monday" {% if
+                                period_config and 'Monday' in period_config.days_of_week %}checked{% endif %}>
+                            <label class="form-check-label">Monday</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="days" value="Tuesday" {% if
+                                period_config and 'Tuesday' in period_config.days_of_week %}checked{% endif %}>
+                            <label class="form-check-label">Tuesday</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="days" value="Wednesday" {% if
+                                period_config and 'Wednesday' in period_config.days_of_week %}checked{% endif %}>
+                            <label class="form-check-label">Wednesday</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="days" value="Thursday" {% if
+                                period_config and 'Thursday' in period_config.days_of_week %}checked{% endif %}>
+                            <label class="form-check-label">Thursday</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="days" value="Friday" {% if
+                                period_config and 'Friday' in period_config.days_of_week %}checked{% endif %}>
+                            <label class="form-check-label">Friday</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="days" value="Saturday" {% if
+                                period_config and 'Saturday' in period_config.days_of_week %}checked{% endif %}>
+                            <label class="form-check-label">Saturday</label>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="savePeriodConfig()">
+                        <i class="bi bi-save"></i> Save Period Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Break Configuration -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="bi bi-cup"></i> Break Configuration</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addBreakModal">
+                    <i class="bi bi-plus-circle"></i> Add Break
+                </button>
+
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Break Name</th>
+                                <th>After Period</th>
+                                <th>Duration (min)</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for break_item in breaks %}
+                            <tr>
+                                <td>{{ break_item.break_name }}</td>
+                                <td>P{{ break_item.after_period }}</td>
+                                <td>{{ break_item.duration_minutes }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-warning"
+                                        onclick="editBreak({{ break_item.id }}, '{{ break_item.break_name }}', {{ break_item.after_period }}, {{ break_item.duration_minutes }})">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteBreak({{ break_item.id }})">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No breaks configured</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Break Modal -->
+<div class="modal fade" id="addBreakModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="breakModalTitle">Add Break</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="breakForm">
+                    <input type="hidden" id="breakId" name="break_id">
+                    <div class="mb-3">
+                        <label class="form-label">Break Name *</label>
+                        <input type="text" class="form-control" id="breakName" name="break_name"
+                            placeholder="e.g., Lunch Break, Short Break" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">After Period *</label>
+                        <input type="number" class="form-control" id="afterPeriod" name="after_period" min="1"
+                            max="{{ period_config.periods_per_day if period_config else 8 }}" required>
+                        <small class="text-muted">Which period number this break comes after</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Duration (minutes) *</label>
+                        <input type="number" class="form-control" id="breakDuration" name="duration_minutes" min="5"
+                            max="120" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveBreak()">Save Break</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let editingBreakId = null;
+
+    function savePeriodConfig() {
+        const btn = document.querySelector('#periodConfigForm button');
+        const originalText = btn.innerHTML;
+        const form = document.getElementById('periodConfigForm');
+        const formData = new FormData(form);
+
+        const days = Array.from(document.querySelectorAll('input[name="days"]:checked')).map(cb => cb.value);
+
+        if (days.length === 0) {
+            UI.showToast('Please select at least one day of the week', 'error');
+            return;
+        }
+
+        // UX: Disable button and show spinner
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+
+        const data = {
+            periods_per_day: parseInt(formData.get('periods_per_day')),
+            period_duration_minutes: parseInt(formData.get('period_duration_minutes')),
+            day_start_time: formData.get('day_start_time'),
+            days_of_week: days
+        };
+
+        fetch('/settings/period', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    UI.showToast('Period settings saved! Time slots regenerated.', 'success');
+                    // Update max period for break modal without reload
+                    const maxPeriods = parseInt(formData.get('periods_per_day'));
+                    document.getElementById('afterPeriod').max = maxPeriods;
+                } else {
+                    UI.showToast('Error: ' + (data.error || 'Failed to save settings'), 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Fetch error:', err);
+                UI.showToast('Network error: Failed to save settings.', 'error');
+            })
+            .finally(() => {
+                // Reset button
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+    }
+
+    function saveBreak() {
+        const btn = document.querySelector('#addBreakModal .modal-footer .btn-primary');
+        const originalText = btn.innerHTML;
+        const form = document.getElementById('breakForm');
+        const formData = new FormData(form);
+
+        // UX: Disable button and show spinner
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+
+        const data = {
+            break_name: formData.get('break_name'),
+            after_period: parseInt(formData.get('after_period')),
+            duration_minutes: parseInt(formData.get('duration_minutes')),
+            order: 1
+        };
+
+        const url = editingBreakId
+            ? `/settings/break/${editingBreakId}/update`
+            : '/settings/break/add';
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    UI.showToast('Break saved successfully!', 'success');
+
+                    // Update DOM immediately
+                    const tbody = document.querySelector('table tbody');
+                    const noBreaksRow = tbody.querySelector('.text-muted');
+                    if (noBreaksRow) noBreaksRow.closest('tr').remove();
+
+                    if (editingBreakId) {
+                        // Update existing row
+                        const row = document.querySelector(`button[onclick*="editBreak(${editingBreakId}"]`).closest('tr');
+                        row.cells[0].textContent = data.break_name;
+                        row.cells[1].textContent = 'P' + data.after_period;
+                        row.cells[2].textContent = data.duration_minutes;
+                        // Update edit button onclick
+                        const editBtn = row.querySelector('.btn-warning');
+                        editBtn.setAttribute('onclick', `editBreak(${editingBreakId}, '${data.break_name}', ${data.after_period}, ${data.duration_minutes})`);
+                    } else {
+                        // Add new row
+                        const newRow = document.createElement('tr');
+                        newRow.innerHTML = `
+                            <td>${data.break_name}</td>
+                            <td>P${data.after_period}</td>
+                            <td>${data.duration_minutes}</td>
+                            <td>
+                                <button class="btn btn-sm btn-warning"
+                                    onclick="editBreak(${res.id}, '${data.break_name}', ${data.after_period}, ${data.duration_minutes})">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteBreak(${res.id})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(newRow);
+                    }
+
+                    // Close modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('addBreakModal'));
+                    modal.hide();
+                } else {
+                    UI.showToast('Error: ' + (res.error || 'Failed to save break'), 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Fetch error:', err);
+                UI.showToast('Network error: Failed to save break.', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+    }
+
+    function editBreak(id, name, afterPeriod, duration) {
+        editingBreakId = id;
+        document.getElementById('breakModalTitle').textContent = 'Edit Break';
+        document.getElementById('breakId').value = id;
+        document.getElementById('breakName').value = name;
+        document.getElementById('afterPeriod').value = afterPeriod;
+        document.getElementById('breakDuration').value = duration;
+
+        const modal = new bootstrap.Modal(document.getElementById('addBreakModal'));
+        modal.show();
+    }
+
+    function deleteBreak(id) {
+        UI.confirm('Are you sure you want to delete this break?', () => {
+            fetch(`/settings/break/${id}/delete`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        UI.showToast('Break deleted successfully.', 'success');
+                        // Remove row from DOM
+                        const btn = document.querySelector(`button[onclick="deleteBreak(${id})"]`);
+                        if (btn) {
+                            const row = btn.closest('tr');
+                            row.remove();
+                            // If no rows left, show "No breaks configured"
+                            const tbody = document.querySelector('table tbody');
+                            if (tbody.children.length === 0) {
+                                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No breaks configured</td></tr>';
+                            }
+                        }
+                    } else {
+                        UI.showToast('Error deleting break', 'error');
+                    }
+                })
+                .catch(err => {
+                    console.error('Fetch error:', err);
+                    UI.showToast('Network error: Failed to delete break.', 'error');
+                });
+        });
+    }
+
+    // Reset modal when closed
+    document.getElementById('addBreakModal').addEventListener('hidden.bs.modal', function () {
+        editingBreakId = null;
+        document.getElementById('breakModalTitle').textContent = 'Add Break';
+        document.getElementById('breakForm').reset();
+
+        // Reset button state if it was stuck
+        const btn = document.querySelector('#addBreakModal .modal-footer .btn-primary');
+        btn.disabled = false;
+        btn.innerHTML = 'Save Break';
+    });
+</script>
+{% endblock %}

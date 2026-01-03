@@ -1,0 +1,590 @@
+{% extends "base.html" %}
+
+{% block title %}Student Dashboard - PlanSphere.AI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-person-circle"></i> Student Dashboard</h2>
+        </div>
+    </div>
+</div>
+
+<!-- Student Profile Card -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-person-badge"></i> My Profile</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-4">
+                    <div class="profile-avatar bg-primary text-white rounded-circle mx-auto d-flex align-items-center justify-content-center"
+                        style="width: 100px; height: 100px; font-size: 48px;">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                </div>
+                <table class="table table-sm">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted"><strong>Student ID:</strong></td>
+                            <td>{{ student.student_id or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted"><strong>Name:</strong></td>
+                            <td>{{ student.name or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted"><strong>Username:</strong></td>
+                            <td>{{ user.username or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted"><strong>Program:</strong></td>
+                            <td>
+                                {% if student.program %}
+                                <span class="badge bg-info">{{ student.program.upper() }}</span>
+                                {% else %}
+                                <span class="text-muted">Not Set</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted"><strong>Branch:</strong></td>
+                            <td>
+                                {% if student.branch %}
+                                <span class="badge bg-primary">{{ student.branch }}</span>
+                                {% else %}
+                                <span class="text-muted">Not Set</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted"><strong>Semester:</strong></td>
+                            <td>
+                                {% if student.semester %}
+                                <span class="badge bg-success">Semester {{ student.semester }}</span>
+                                {% else %}
+                                <span class="text-muted">Not Set</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <button class="btn btn-outline-primary w-100" onclick="showEditProfile()">
+                    <i class="bi bi-pencil"></i> Edit Profile
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Enrolled Courses Card -->
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="bi bi-journal-bookmark-fill"></i> My Enrolled Courses</h5>
+            </div>
+            <div class="card-body">
+                {% if student.enrolled_courses and student.enrolled_courses|length > 0 %}
+                <div class="alert alert-success">
+                    <i class="bi bi-check-circle-fill"></i> You are enrolled in <strong>{{
+                        student.enrolled_courses|length }}</strong> courses
+                </div>
+                <div class="row" id="enrolledCoursesList">
+                    <!-- Will be populated by JavaScript -->
+                </div>
+                <div class="mt-3">
+                    <button class="btn btn-primary" onclick="showCourseSelection()">
+                        <i class="bi bi-plus-circle"></i> Modify Course Selection
+                    </button>
+                </div>
+                {% else %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle-fill"></i> You haven't enrolled in any courses yet.
+                </div>
+                {% if student.program and student.branch and student.semester %}
+                <p class="text-muted">Click the button below to select your courses for this semester.</p>
+                <button class="btn btn-primary" onclick="showCourseSelection()">
+                    <i class="bi bi-plus-circle"></i> Select Courses
+                </button>
+                {% else %}
+                <p class="text-muted">Please set up your profile first (Program, Branch, Semester) before selecting
+                    courses.</p>
+                <button class="btn btn-outline-primary" onclick="showEditProfile()">
+                    <i class="bi bi-gear"></i> Setup Profile
+                </button>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Profile Modal -->
+<div class="modal fade" id="editProfileModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-gear"></i> Edit Profile</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="studentProfileForm">
+                    <form id="studentProfileForm">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Select Program *</label>
+                                <select class="form-select" id="programSelect" name="program" required
+                                    onchange="loadBranches()">
+                                    <option value="">-- Select Program --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Select Branch *</label>
+                                <select class="form-select" id="branchSelect" name="branch" required
+                                    onchange="loadSemesters()" disabled>
+                                    <option value="">-- Select Branch --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Select Semester *</label>
+                                <select class="form-select" id="semesterSelect" name="semester" required disabled>
+                                    <option value="">-- Select Semester --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveProfile()">
+                    <i class="bi bi-save"></i> Save Profile
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Course Selection Modal -->
+<div class="modal fade" id="courseSelectionModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-list-check"></i> Course Selection</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Select the courses you want to enroll in. Courses are categorized
+                    by type (Major, Minor, MD, AE, SE, VA).
+                </div>
+
+                <div id="coursesLoading" class="text-center py-4" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading courses...</p>
+                </div>
+
+                <div id="coursesContainer"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="saveEnrolledCourses()" id="saveCoursesBtn">
+                    <i class="bi bi-check-circle"></i> Save Enrolled Courses
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let availableCourses = [];
+    let selectedCourses = [];
+    let studentData = {{ student_json | safe }};
+    let branchesData = {};
+    let enrolledCoursesDetails = [];
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Load enrolled courses
+        selectedCourses = studentData.enrolled_courses || [];
+        loadEnrolledCoursesDetails();
+    });
+
+    async function loadEnrolledCoursesDetails() {
+        if (!studentData.program || !studentData.branch || !studentData.semester) return;
+
+        try {
+            const response = await fetch(`/api/student/courses?program=${studentData.program}&branch=${encodeURIComponent(studentData.branch)}&semester=${studentData.semester}`);
+            const data = await response.json();
+
+            if (data.success) {
+                // Auto-add mandatory courses for semester 1 and 2
+                if (studentData.semester <= 2 && data.mandatory_courses) {
+                    selectedCourses = [...new Set([...selectedCourses, ...data.mandatory_courses])];
+                    studentData.enrolled_courses = selectedCourses;
+                }
+
+                enrolledCoursesDetails = data.courses.filter(c => selectedCourses.includes(c.code));
+                renderEnrolledCourses();
+            }
+        } catch (error) {
+            console.error('Error loading course details:', error);
+        }
+    }
+
+    function renderEnrolledCourses() {
+        const container = document.getElementById('enrolledCoursesList');
+        if (!container) return;
+
+        const typeColors = {
+            'major': 'primary',
+            'minor': 'secondary',
+            'md': 'success',
+            'ae': 'info',
+            'se': 'warning',
+            'va': 'danger'
+        };
+
+        let html = '';
+        enrolledCoursesDetails.forEach(course => {
+            const color = typeColors[course.subject_type] || 'secondary';
+            html += `
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <span class="badge bg-${color}">${course.code}</span>
+                                ${course.name}
+                            </h6>
+                            <p class="card-text mb-1">
+                                <small class="text-muted">
+                                    <i class="bi bi-book"></i> ${course.course_type}
+                                    <i class="bi bi-star-fill ms-2"></i> ${course.credits} Credits
+                                    <i class="bi bi-clock ms-2"></i> ${course.hours_per_week} hrs/week
+                                </small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function showEditProfile() {
+        loadPrograms();
+
+        // Load current values
+        if (studentData.program) {
+            setTimeout(() => {
+                document.getElementById('programSelect').value = studentData.program;
+                loadBranches().then(() => {
+                    if (studentData.branch) {
+                        document.getElementById('branchSelect').value = studentData.branch;
+                        loadSemesters().then(() => {
+                            if (studentData.semester) {
+                                document.getElementById('semesterSelect').value = studentData.semester;
+                            }
+                        });
+                    }
+                });
+            }, 100);
+        }
+
+        const modal = new bootstrap.Modal(document.getElementById('editProfileModal'));
+        modal.show();
+    }
+
+    function showCourseSelection() {
+        if (!studentData.program || !studentData.branch || !studentData.semester) {
+            alert('Please set up your profile first (Program, Branch, Semester)');
+            showEditProfile();
+            return;
+        }
+
+        loadCourses();
+        const modal = new bootstrap.Modal(document.getElementById('courseSelectionModal'));
+        modal.show();
+    }
+
+    async function loadPrograms() {
+        try {
+            const response = await fetch('/api/branches/programs');
+            const data = await response.json();
+
+            const select = document.getElementById('programSelect');
+            select.innerHTML = '<option value="">-- Select Program --</option>';
+
+            data.programs.forEach(program => {
+                select.innerHTML += `<option value="${program}">${program.toUpperCase()}</option>`;
+            });
+        } catch (error) {
+            console.error('Error loading programs:', error);
+        }
+    }
+
+    async function loadBranches() {
+        const program = document.getElementById('programSelect').value;
+        const branchSelect = document.getElementById('branchSelect');
+        const semesterSelect = document.getElementById('semesterSelect');
+
+        if (!program) {
+            branchSelect.disabled = true;
+            semesterSelect.disabled = true;
+            branchSelect.innerHTML = '<option value="">-- Select Branch --</option>';
+            semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/branches/by-program/${program}`);
+            const data = await response.json();
+
+            branchesData = {};
+            branchSelect.innerHTML = '<option value="">-- Select Branch --</option>';
+
+            data.branches.forEach(branch => {
+                branchesData[branch.name] = branch;
+                branchSelect.innerHTML += `<option value="${branch.name}">${branch.name} (${branch.code})</option>`;
+            });
+
+            branchSelect.disabled = false;
+            semesterSelect.disabled = true;
+            semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
+        } catch (error) {
+            console.error('Error loading branches:', error);
+        }
+    }
+
+    async function loadSemesters() {
+        const branch = document.getElementById('branchSelect').value;
+        const semesterSelect = document.getElementById('semesterSelect');
+
+        if (!branch || !branchesData[branch]) {
+            semesterSelect.disabled = true;
+            semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
+            return;
+        }
+
+        const totalSemesters = branchesData[branch].total_semesters || 8;
+        semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
+
+        for (let i = 1; i <= totalSemesters; i++) {
+            semesterSelect.innerHTML += `<option value="${i}">Semester ${i}</option>`;
+        }
+
+        semesterSelect.disabled = false;
+    }
+
+    async function saveProfile() {
+        const program = document.getElementById('programSelect').value;
+        const branch = document.getElementById('branchSelect').value;
+        const semester = document.getElementById('semesterSelect').value;
+
+        if (!program || !branch || !semester) {
+            alert('Please select Program, Branch, and Semester');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/student/update-profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ program, branch, semester: parseInt(semester) })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                studentData.program = program;
+                studentData.branch = branch;
+                studentData.semester = parseInt(semester);
+
+                showToast('Profile saved successfully!', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('editProfileModal')).hide();
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast('Error: ' + (data.error || 'Failed to save profile'), 'error');
+            }
+        } catch (error) {
+            console.error('Error saving profile:', error);
+            showToast('Error saving profile', 'error');
+        }
+    }
+
+    async function loadCourses() {
+        if (!studentData.program || !studentData.branch || !studentData.semester) {
+            alert('Please set up your profile first');
+            return;
+        }
+
+        document.getElementById('coursesLoading').style.display = 'block';
+        document.getElementById('coursesContainer').innerHTML = '';
+
+        try {
+            const response = await fetch(`/api/student/courses?program=${studentData.program}&branch=${encodeURIComponent(studentData.branch)}&semester=${studentData.semester}`);
+            const data = await response.json();
+
+            availableCourses = data.courses || [];
+
+            // Auto-add mandatory courses for semester 1 and 2
+            if (studentData.semester <= 2 && data.mandatory_courses) {
+                data.mandatory_courses.forEach(code => {
+                    if (!selectedCourses.includes(code)) {
+                        selectedCourses.push(code);
+                    }
+                });
+            }
+
+            renderCourses();
+
+            document.getElementById('coursesLoading').style.display = 'none';
+        } catch (error) {
+            console.error('Error loading courses:', error);
+            document.getElementById('coursesLoading').style.display = 'none';
+            showToast('Error loading courses', 'error');
+        }
+    }
+
+    function renderCourses() {
+        const container = document.getElementById('coursesContainer');
+
+        if (availableCourses.length === 0) {
+            container.innerHTML = '<div class="alert alert-warning">No courses available for this semester. Please contact admin.</div>';
+            return;
+        }
+
+        // Add info message for semester 1 and 2
+        let infoMessage = '';
+        if (studentData.semester <= 2) {
+            infoMessage = `
+                <div class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i> <strong>Note:</strong> All Major and Minor subjects are automatically enrolled for Semester ${studentData.semester}. 
+                    You can select additional subjects (MD, VA, SE, AE) if available.
+                </div>
+            `;
+        }
+
+        // Group courses by subject_type
+        const groupedCourses = {};
+        availableCourses.forEach(course => {
+            const type = course.subject_type || 'other';
+            if (!groupedCourses[type]) {
+                groupedCourses[type] = [];
+            }
+            groupedCourses[type].push(course);
+        });
+
+        const typeLabels = {
+            'major': { label: 'Major Courses', color: 'primary' },
+            'minor': { label: 'Minor Courses', color: 'secondary' },
+            'md': { label: 'Multidisciplinary (MD)', color: 'success' },
+            'ae': { label: 'Ability Enhancement (AE)', color: 'info' },
+            'se': { label: 'Skill Enhancement (SE)', color: 'warning' },
+            'va': { label: 'Value Added (VA)', color: 'danger' },
+            'other': { label: 'Other Courses', color: 'dark' }
+        };
+
+        let html = infoMessage;
+        Object.keys(groupedCourses).forEach(type => {
+            const typeInfo = typeLabels[type] || typeLabels['other'];
+            html += `
+                <div class="mb-4">
+                    <h5 class="text-${typeInfo.color}">
+                        <span class="badge bg-${typeInfo.color}">${typeInfo.label}</span>
+                    </h5>
+                    <div class="row">
+            `;
+
+            groupedCourses[type].forEach(course => {
+                const isSelected = selectedCourses.includes(course.code);
+                const isMandatory = course.is_mandatory || false;
+                const isDisabled = isMandatory ? 'disabled' : '';
+                const mandatoryBadge = isMandatory ? '<span class="badge bg-success ms-1">Mandatory</span>' : '';
+
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <div class="card ${isSelected ? 'border-success' : ''}">
+                            <div class="card-body">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" 
+                                           id="course_${course.code}" 
+                                           value="${course.code}"
+                                           ${isSelected ? 'checked' : ''}
+                                           ${isDisabled}
+                                           onchange="toggleCourse('${course.code}')">
+                                    <label class="form-check-label" for="course_${course.code}">
+                                        <strong>${course.code}</strong> - ${course.name}
+                                        ${mandatoryBadge}
+                                        <br>
+                                        <small class="text-muted">
+                                            <span class="badge bg-info">${course.course_type}</span>
+                                            <span class="badge bg-secondary">${course.credits} Credits</span>
+                                        </small>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function toggleCourse(code) {
+        const index = selectedCourses.indexOf(code);
+        if (index > -1) {
+            selectedCourses.splice(index, 1);
+        } else {
+            selectedCourses.push(code);
+        }
+        renderCourses();
+    }
+
+    async function saveEnrolledCourses() {
+        if (selectedCourses.length === 0) {
+            alert('Please select at least one course');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/student/enroll-courses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ courses: selectedCourses })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                studentData.enrolled_courses = selectedCourses;
+                showToast(`Successfully enrolled in ${selectedCourses.length} courses!`, 'success');
+                bootstrap.Modal.getInstance(document.getElementById('courseSelectionModal')).hide();
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast('Error: ' + (data.error || 'Failed to save courses'), 'error');
+            }
+        } catch (error) {
+            console.error('Error saving courses:', error);
+            showToast('Error saving courses', 'error');
+        }
+    }
+
+    function showToast(message, type) {
+        // Simple toast notification
+        const toast = document.createElement('div');
+        toast.className = `alert alert-${type === 'error' ? 'danger' : 'success'} position-fixed top-0 end-0 m-3`;
+        toast.style.zIndex = '9999';
+        toast.innerHTML = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+</script>
+{% endblock %}

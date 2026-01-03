@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{% block title %}Students - PlanSphere.AI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-people"></i> Student Management</h2>
+            {% if user.role == 'admin' %}
+            <div class="d-flex flex-wrap gap-2">
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
+                        aria-expanded="false">
+                        <i class="bi bi-download"></i> Download Template
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="/download-template/students?format=csv">CSV</a></li>
+                        <li><a class="dropdown-item" href="/download-template/students?format=xlsx">Excel (.xlsx)</a>
+                        </li>
+                    </ul>
+                </div>
+                <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#importStudentModal">
+                    <i class="bi bi-upload"></i> Import CSV/Excel
+                </button>
+                <button class="btn btn-outline-danger" onclick="deleteAllStudents(event)">
+                    <i class="bi bi-trash"></i> Delete All
+                </button>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal">
+                    <i class="bi bi-plus-circle"></i> Add Student
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Name</th>
+                            <th>Enrolled Courses</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students %}
+                        <tr>
+                            <td><strong>{{ student.student_id }}</strong></td>
+                            <td>{{ student.name }}</td>
+                            <td>
+                                {% if student.enrolled_courses and student.enrolled_courses|length > 0 %}
+                                {% for code in student.enrolled_courses %}
+                                <span class="badge bg-primary">{{ code }}</span>
+                                {% endfor %}
+                                {% else %}
+                                <span class="text-muted">No courses enrolled</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if user.role == 'admin' %}
+                                <button class="btn btn-sm btn-outline-primary me-2"
+                                    onclick="openEditStudentModal('{{ student.id }}', '{{ student.student_id }}', '{{ student.name }}')">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteStudent('{{ student.id }}')">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                                {% else %}
+                                <span class="text-muted">View Only</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">No students added yet. Click "Add Student" to
+                                get started.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Student Modal -->
+<div class="modal fade" id="addStudentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Student</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addStudentForm">
+                    <div class="mb-3">
+                        <label class="form-label">Student ID *</label>
+                        <input type="text" class="form-control" name="student_id" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name *</label>
+                        <input type="text" class="form-control" name="name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Username (login) *</label>
+                            <input type="text" class="form-control" name="username" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Password *</label>
+                            <input type="password" class="form-control" name="password" required>
+                        </div>
+                    </div>
+                    <div class="alert alert-info mb-0">
+                        <i class="bi bi-info-circle"></i> Students will select their courses after logging in based on
+                        their program, branch, and semester.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitStudent()">Add Student</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal fade" id="importStudentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Import Students</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="importStudentForm">
+                    <div class="mb-3">
+                        <label class="form-label">CSV/Excel File *</label>
+                        <input type="file" class="form-control" name="file" accept=".csv,.xls,.xlsx" required>
+                    </div>
+                    <p class="text-muted small mb-0">Required columns: student_id, name. Optional: username, password,
+                        enrolled_courses.</p>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="importStudents()">Import</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Student Modal -->
+<div class="modal fade" id="editStudentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Student</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editStudentForm">
+                    <input type="hidden" id="editStudentId">
+                    <div class="mb-3">
+                        <label class="form-label">Student ID *</label>
+                        <input type="text" class="form-control" id="editStudentStudentId" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name *</label>
+                        <input type="text" class="form-control" id="editStudentName" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="submitEditStudent()">Update Student</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let courseList = [];
+
+    function addCourse(code) {
+        if (!courseList.includes(code)) {
+            courseList.push(code);
+            updateCourseDisplay();
+        }
+    }
+
+    function updateCourseDisplay() {
+        const input = document.querySelector('input[name="courses_text"]');
+        input.value = courseList.join(', ');
+    }
+
+    function submitStudent() {
+        const form = document.getElementById('addStudentForm');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+
+        const payload = {
+            student_id: data.student_id,
+            name: data.name,
+            username: (data.username || '').trim(),
+            password: (data.password || '').trim(),
+            courses: [] // Students will select courses themselves after login
+        };
+
+        fetch('/students/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    UI.showToast('Student added successfully', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    UI.showToast('Error: ' + (data.error || 'Failed to add student'), 'error');
+                }
+            });
+    }
+
+    function openEditStudentModal(id, studentId, name) {
+        document.getElementById('editStudentId').value = id;
+        document.getElementById('editStudentStudentId').value = studentId;
+        document.getElementById('editStudentName').value = name;
+
+        new bootstrap.Modal(document.getElementById('editStudentModal')).show();
+    }
+
+    function submitEditStudent() {
+        const form = document.getElementById('editStudentForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+
+        const id = document.getElementById('editStudentId').value;
+        const payload = {
+            student_id: document.getElementById('editStudentStudentId').value,
+            name: document.getElementById('editStudentName').value
+        };
+
+        fetch(`/api/student/${id}/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    UI.showToast('Student updated successfully', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('editStudentModal')).hide();
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    UI.showToast('Error: ' + (data.error || 'Failed to update student'), 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                UI.showToast('Failed to update student', 'error');
+            });
+    }
+
+    function deleteStudent(id) {
+        UI.confirm('Are you sure you want to delete this student?', () => {
+            fetch(`/students/${id}/delete`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        UI.showToast('Student deleted successfully', 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        UI.showToast('Error deleting student', 'error');
+                    }
+                });
+        });
+    }
+
+    function importStudents() {
+        const form = document.getElementById('importStudentForm');
+        const formData = new FormData(form);
+        fetch('/students/import', {
+            method: 'POST',
+            body: formData
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    UI.showToast('Students imported successfully', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    UI.showToast('Import failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            });
+    }
+
+    function deleteAllStudents(event) {
+        if (event) event.preventDefault();
+
+        UI.confirm('⚠️ WARNING: This will permanently delete ALL students and their user accounts. Are you absolutely sure?', () => {
+            const btn = event && event.target ? event.target.closest('button') : null;
+            let originalHTML = '';
+            if (btn) {
+                originalHTML = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Deleting...';
+            }
+
+            fetch('/students/delete-all', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        UI.showToast(`✅ Successfully deleted ${data.deleted} students`, 'success');
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = originalHTML;
+                        }
+                        UI.showToast('❌ Error: ' + (data.error || 'Failed to delete students'), 'error');
+                        console.error('Error:', data.error);
+                    }
+                })
+                .catch(err => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalHTML;
+                    }
+                    UI.showToast('❌ Network error: ' + err, 'error');
+                    console.error('Error:', err);
+                });
+        });
+    }
+
+
+</script>
+{% endblock %}
+```
