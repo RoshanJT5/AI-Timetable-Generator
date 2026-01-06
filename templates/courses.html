@@ -401,42 +401,50 @@
             </div>
             <div class="modal-body">
                 <form id="addSubjectForm">
-                    <div class="mb-3">
-                        <label class="form-label">Subject Name *</label>
-                        <input type="text" class="form-control" name="name" placeholder="e.g., Data Structures"
-                            required>
+                    <div id="subjectRowsContainer">
+                        <div class="subject-input-row border rounded p-3 mb-3 bg-light">
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                    <label class="form-label">Subject Name *</label>
+                                    <input type="text" class="form-control subject-name" name="name[]"
+                                        placeholder="e.g., Data Structures" required
+                                        onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                    <label class="form-label">Subject Code *</label>
+                                    <input type="text" class="form-control subject-code" name="code[]"
+                                        placeholder="e.g., CS101" required
+                                        onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
+                                </div>
+                                <div class="col-md-4 mb-2">
+                                    <label class="form-label">Subject Type *</label>
+                                    <select class="form-select subject-type" name="subject_type[]" required>
+                                        <option value="major">Major</option>
+                                        <option value="minor">Minor</option>
+                                        <option value="md">MD</option>
+                                        <option value="ae">AE</option>
+                                        <option value="se">SE</option>
+                                        <option value="va">VA</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-2">
+                                    <label class="form-label">Type *</label>
+                                    <select class="form-select course-type" name="type[]" required>
+                                        <option value="theory">Theory</option>
+                                        <option value="practical">Practical</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-2">
+                                    <label class="form-label">Credits *</label>
+                                    <input type="number" class="form-control subject-credits" name="credits[]" value="3"
+                                        min="1" max="10" required>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Subject Code *</label>
-                        <input type="text" class="form-control" name="code" placeholder="e.g., CS101" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Select Subject Type *</label>
-                        <select class="form-select" name="subject_type" required>
-                            <option value="">-- Select Type --</option>
-                            <option value="major">Major</option>
-                            <option value="minor">Minor</option>
-                            <option value="md">Multidisciplinary (MD)</option>
-                            <option value="ae">Ability Enhancement (AE)</option>
-                            <option value="se">Skill Enhancement (SE)</option>
-                            <option value="va">Value Added (VA)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Type *</label>
-                        <select class="form-select" name="type" required>
-                            <option value="theory">Theory</option>
-                            <option value="practical">Practical</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Credits *</label>
-                        <input type="number" class="form-control" name="credits" value="3" min="1" max="10" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Hours Per Week</label>
-                        <input type="number" class="form-control" name="hours_per_week" value="3" min="1" max="10">
-                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm mb-3" onclick="addRow()">
+                        <i class="bi bi-plus-circle"></i> Add Another Row
+                    </button>
                 </form>
             </div>
             <div class="modal-footer">
@@ -632,6 +640,8 @@
             return;
         }
 
+        const savingToast = UI.showToast('Creating branch...', 'saving', 0);
+
         fetch('/branches/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -640,10 +650,10 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    UI.showToast('Branch created successfully', 'success');
+                    savingToast.update('Branch created successfully', 'success');
                     setTimeout(() => location.reload(), 1000);
                 } else {
-                    UI.showToast('Error: ' + (data.error || 'Failed to create branch'), 'error');
+                    savingToast.update('Error: ' + (data.error || 'Failed to create branch'), 'error');
                 }
             });
     }
@@ -796,8 +806,57 @@
         document.getElementById('subjectsTableBody').innerHTML = html;
     }
 
+    // Add a new subject row
+    function addRow() {
+        const container = document.getElementById('subjectRowsContainer');
+        const newRow = document.createElement('div');
+        newRow.className = 'subject-input-row border rounded p-3 mb-3 bg-light position-relative';
+        newRow.innerHTML = `
+            <button type="button" class="btn-close position-absolute top-0 end-0 m-2" onclick="this.closest('.subject-input-row').remove()"></button>
+            <div class="row">
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Subject Name *</label>
+                    <input type="text" class="form-control subject-name" name="name[]" placeholder="e.g., Data Structures" required onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Subject Code *</label>
+                    <input type="text" class="form-control subject-code" name="code[]" placeholder="e.g., CS101" required onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Subject Type *</label>
+                    <select class="form-select subject-type" name="subject_type[]" required>
+                        <option value="major">Major</option>
+                        <option value="minor">Minor</option>
+                        <option value="md">MD</option>
+                        <option value="ae">AE</option>
+                        <option value="se">SE</option>
+                        <option value="va">VA</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Type *</label>
+                    <select class="form-select course-type" name="type[]" required>
+                        <option value="theory">Theory</option>
+                        <option value="practical">Practical</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Credits *</label>
+                    <input type="number" class="form-control subject-credits" name="credits[]" value="3" min="1" max="10" required>
+                </div>
+            </div>
+        `;
+        container.appendChild(newRow);
+        newRow.querySelector('.subject-name').focus();
+    }
+
     // Open add subject modal
     function openAddSubjectModal() {
+        // Reset form
+        document.getElementById('addSubjectForm').reset();
+        document.getElementById('subjectRowsContainer').innerHTML = '';
+        addRow(); // Add first row
+
         // Close branch detail modal temporarily
         bootstrap.Modal.getInstance(document.getElementById('branchDetailModal')).hide();
 
@@ -838,28 +897,65 @@
             .finally(() => { input.value = ''; });
     }
 
-    // Submit new subject
-    function submitSubject() {
-        const form = document.getElementById('addSubjectForm');
-        const formData = new FormData(form);
-        const data = Object.fromEntries(formData);
-        data.semester = currentSemester;
+    // Submit new subject(s)
+    async function submitSubject() {
+        const rows = document.querySelectorAll('.subject-input-row');
+        const subjects = [];
+        let isValid = true;
 
-        fetch(`/branches/${currentBranchCode}/subjects/add`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    UI.showToast('Subject added successfully', 'success');
-                    bootstrap.Modal.getInstance(document.getElementById('addSubjectModal')).hide();
-                    setTimeout(() => location.reload(), 1000);
-                } else {
-                    UI.showToast('Error: ' + (data.error || 'Failed to add subject'), 'error');
-                }
-            });
+        rows.forEach(row => {
+            const name = row.querySelector('.subject-name').value.trim();
+            const code = row.querySelector('.subject-code').value.trim();
+            const subject_type = row.querySelector('.subject-type').value;
+            const type = row.querySelector('.course-type').value;
+            const credits = row.querySelector('.subject-credits').value;
+
+            if (!name || !code) {
+                isValid = false;
+                row.classList.add('border-danger');
+            } else {
+                row.classList.remove('border-danger');
+                subjects.push({
+                    name, code, subject_type, type, credits,
+                    semester: currentSemester
+                });
+            }
+        });
+
+        if (!isValid) {
+            UI.showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        const savingToast = UI.showToast(`Saving ${subjects.length} subjects...`, 'saving', 0);
+
+        try {
+            // Process sequentially or together if backend supports it. 
+            // Current backend seems to support single addition. Let's do it in a loop or fix backend.
+            // Since I cannot easily change the backend right now, I'll loop.
+
+            for (const subject of subjects) {
+                const response = await fetch(`/branches/${currentBranchCode}/subjects/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(subject)
+                });
+                const result = await response.json();
+                if (!result.success) throw new Error(result.error || 'Failed to add subject');
+            }
+
+            savingToast.update('Subjects added successfully!', 'success');
+
+            // Close modal and return to branch detail
+            bootstrap.Modal.getInstance(document.getElementById('addSubjectModal')).hide();
+
+            // Reload the page to refresh branchData or fetch it again. 
+            // For now, let's reload but the toast will show the checkmark briefly.
+            setTimeout(() => location.reload(), 1000);
+
+        } catch (err) {
+            savingToast.update('Error: ' + err.message, 'error');
+        }
     }
 
     // Open edit subject modal
@@ -898,6 +994,8 @@
             hours_per_week: parseInt(document.getElementById('editHoursPerWeek').value)
         };
 
+        const savingToast = UI.showToast('Updating subject...', 'saving', 0);
+
         fetch(`/api/subject/${subjectId}/update`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -906,17 +1004,16 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    UI.showToast('Subject updated successfully!', 'success');
+                    savingToast.update('Subject updated successfully!', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('editSubjectModal')).hide();
-                    // Reload the branch data
-                    location.reload();
+                    setTimeout(() => location.reload(), 1000);
                 } else {
-                    UI.showToast('Error: ' + (data.error || 'Failed to update subject'), 'error');
+                    savingToast.update('Error: ' + (data.error || 'Failed to update subject'), 'error');
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                UI.showToast('Failed to update subject', 'error');
+                savingToast.update('Failed to update subject', 'error');
             });
     }
 

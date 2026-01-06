@@ -66,8 +66,10 @@
                             <td>{{ group.total_students or '-' }}</td>
                             <td>{{ group.description or '-' }}</td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary me-2"
-                                    onclick="openEditGroupModal('{{ group.id }}', '{{ group.name }}', '{{ group.description or '' }}', {{ group.total_students or 0 }})">
+                                <button class="btn btn-sm btn-outline-primary me-2" onclick="openEditGroupModal(this)"
+                                    data-id="{{ group.id }}" data-name="{{ group.name }}"
+                                    data-description="{{ group.description or '' }}"
+                                    data-students="{{ group.total_students or 0 }}">
                                     <i class="bi bi-pencil"></i> Edit
                                 </button>
                                 <button class="btn btn-sm btn-danger" onclick="deleteGroup('{{ group.id }}')">
@@ -151,9 +153,12 @@
                             </small>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label class="form-label">Semester *</label>
-                            <input type="number" class="form-control" name="semester" min="1" max="8" placeholder="1-8"
-                                required>
+                            <select class="form-select" name="semester" id="groupSemester" required>
+                                <option value="">Select Semester</option>
+                                {% for s in available_semesters %}
+                                <option value="{{ s }}">Semester {{ s }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                     </div>
 
@@ -175,10 +180,11 @@
                         <div id="batchesContainer"></div>
                         <div class="input-group mt-2">
                             <input type="text" id="newBatchName" class="form-control"
-                                placeholder="Batch name (e.g., Batch-A)">
+                                placeholder="Batch name (e.g., Batch-A)"
+                                onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
                             <input type="number" id="newBatchStudents" class="form-control" placeholder="Students"
-                                min="0">
-                            <button type="button" class="btn btn-outline-primary" onclick="addBatch()">Add</button>
+                                min="0" onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
+                            <button type="button" class="btn btn-outline-primary" onclick="addRow()">Add</button>
                         </div>
                         <small class="text-muted">Click "Add" to create multiple batch entries. Use Remove to delete a
                             row.</small>
@@ -255,47 +261,68 @@
 
 {% block scripts %}
 <script>
-    // Progressive enhancement: Only fetch from API if dropdowns are empty
-    // (Server-side rendering already populated them via Jinja2)
-    document.addEventListener('DOMContentLoaded', () => {
+    function refreshMetadata() {
         const programSelect = document.getElementById('groupProgram');
         const branchSelect = document.getElementById('groupBranch');
+        const semesterSelect = document.getElementById('groupSemester');
 
-        // Check if dropdowns are already populated by server-side rendering
-        const programsAlreadyLoaded = programSelect.options.length > 1; // More than just "Select Program"
-        const branchesAlreadyLoaded = branchSelect.options.length > 1;
+        if (!programSelect || !branchSelect) return;
 
-        // Only fetch from API if server-side rendering failed or is empty
-        if (!programsAlreadyLoaded || !branchesAlreadyLoaded) {
-            console.log('[Student Groups] Fetching metadata from API (server-side rendering was empty)');
-            fetch('/api/metadata')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        if (!programsAlreadyLoaded) {
-                            data.programs.forEach(p => {
-                                const opt = document.createElement('option');
-                                opt.value = p;
-                                opt.textContent = p.charAt(0).toUpperCase() + p.slice(1);
-                                programSelect.appendChild(opt);
-                            });
-                        }
+        fetch('/api/metadata')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Store current selections
+                    const currentProgram = programSelect.value;
+                    const currentBranch = branchSelect.value;
+                    const currentSemester = semesterSelect ? semesterSelect.value : '';
 
-                        if (!branchesAlreadyLoaded) {
-                            data.branches.forEach(b => {
-                                const opt = document.createElement('option');
-                                opt.value = b;
-                                opt.textContent = b.charAt(0).toUpperCase() + b.slice(1);
-                                branchSelect.appendChild(opt);
-                            });
-                        }
+                    // Clear and repopulate Program
+                    programSelect.innerHTML = '<option value="">-- Select Program --</option>';
+                    data.programs.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p;
+                        opt.textContent = p.charAt(0).toUpperCase() + p.slice(1);
+                        programSelect.appendChild(opt);
+                    });
+
+                    // Clear and repopulate Branch
+                    branchSelect.innerHTML = '<option value="">-- Select Branch --</option>';
+                    data.branches.forEach(b => {
+                        const opt = document.createElement('option');
+                        opt.value = b;
+                        opt.textContent = b.charAt(0).toUpperCase() + b.slice(1);
+                        branchSelect.appendChild(opt);
+                    });
+
+                    // Clear and repopulate Semester if it exists
+                    if (semesterSelect) {
+                        semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
+                        data.semesters.forEach(s => {
+                            const opt = document.createElement('option');
+                            opt.value = s;
+                            opt.textContent = `Semester ${s}`;
+                            semesterSelect.appendChild(opt);
+                        });
                     }
-                })
-                .catch(err => {
-                    console.error('[Student Groups] Failed to fetch metadata:', err);
-                });
-        } else {
-            console.log('[Student Groups] Using server-side rendered dropdowns');
+
+                    // Restore selections if they still exist
+                    if ([...programSelect.options].some(o => o.value === currentProgram)) programSelect.value = currentProgram;
+                    if ([...branchSelect.options].some(o => o.value === currentBranch)) branchSelect.value = currentBranch;
+                    if (semesterSelect && [...semesterSelect.options].some(o => o.value === currentSemester)) semesterSelect.value = currentSemester;
+                }
+            })
+            .catch(err => console.error('[Student Groups] Failed to refresh metadata:', err));
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Initial load
+        refreshMetadata();
+
+        // Refresh metadata whenever the modal is shown
+        const addModal = document.getElementById('addGroupModal');
+        if (addModal) {
+            addModal.addEventListener('show.bs.modal', refreshMetadata);
         }
 
         // Toggle handlers for Add New buttons
@@ -376,6 +403,8 @@
         });
         if (batches.length) data.batches = batches;
 
+        const savingToast = UI.showToast('Saving group details...', 'saving', 0);
+
         fetch('/student-groups/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -384,8 +413,7 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    // Show success toast
-                    UI.showToast('Student group added successfully!', 'success');
+                    savingToast.update('Student group added successfully!', 'success');
 
                     // Close modal
                     const modal = bootstrap.Modal.getInstance(document.getElementById('addGroupModal'));
@@ -393,6 +421,7 @@
 
                     // Reset form
                     form.reset();
+                    document.getElementById('batchesContainer').innerHTML = '';
 
                     // Add to table dynamically (no reload!)
                     addGroupToTable(data.group || {
@@ -405,12 +434,12 @@
                         description: data.description || '-'
                     });
                 } else {
-                    UI.showToast(data.error || 'Failed to add group', 'error');
+                    savingToast.update(data.error || 'Failed to add group', 'error');
                 }
             })
             .catch(err => {
                 console.error('Error adding group:', err);
-                UI.showToast('Network error: ' + err.message, 'error');
+                savingToast.update('Network error: ' + err.message, 'error');
             });
     }
 
@@ -446,11 +475,11 @@
         tbody.appendChild(row);
     }
 
-    function openEditGroupModal(id, name, description, totalStudents) {
-        document.getElementById('editGroupId').value = id;
-        document.getElementById('editGroupName').value = name;
-        document.getElementById('editGroupDescription').value = description;
-        document.getElementById('editGroupTotalStudents').value = totalStudents;
+    function openEditGroupModal(btn) {
+        document.getElementById('editGroupId').value = btn.dataset.id;
+        document.getElementById('editGroupName').value = btn.dataset.name;
+        document.getElementById('editGroupDescription').value = btn.dataset.description;
+        document.getElementById('editGroupTotalStudents').value = btn.dataset.students;
 
         new bootstrap.Modal(document.getElementById('editGroupModal')).show();
     }
@@ -510,11 +539,14 @@
         const row = document.createElement('div');
         row.className = 'd-flex mb-2 batch-row';
         row.innerHTML = `
-        <input type="text" class="form-control batch-name me-2" placeholder="Batch name" value="${name || ''}">
-        <input type="number" class="form-control batch-students me-2" placeholder="Students" min="0" value="${students || ''}">
+        <input type="text" class="form-control batch-name me-2" placeholder="Batch name" value="${name || ''}" onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
+        <input type="number" class="form-control batch-students me-2" placeholder="Students" min="0" value="${students || ''}" onkeydown="if(event.key==='Enter'){event.preventDefault(); addRow();}">
         <button type="button" class="btn btn-danger" onclick="this.closest('.batch-row').remove()">Remove</button>
     `;
         container.appendChild(row);
+
+        // Focus the first field of the new row
+        row.querySelector('.batch-name').focus();
     }
 
     function addBatchFromInputs() {
@@ -528,9 +560,11 @@
         // clear input fields after adding
         document.getElementById('newBatchName').value = '';
         document.getElementById('newBatchStudents').value = '';
+        document.getElementById('newBatchName').focus(); // Focus back to main input for next entry
     }
 
-    // keep original addBatch() signature used in onclick
+    // keep original addRow() signature
+    function addRow() { addBatchFromInputs(); }
     function addBatch() { addBatchFromInputs(); }
 
     function importGroups() {

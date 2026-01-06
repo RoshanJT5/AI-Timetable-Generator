@@ -216,6 +216,42 @@ def get_next_id(db, name: str) -> int:
     return int(res['seq'])
 
 
+def get_next_id_batch(db, collection_name: str, count: int = 1000) -> int:
+    """
+    Get a starting ID for batch operations.
+    Returns the starting ID; caller should increment in memory.
+    
+    Args:
+        db: MongoDB database instance
+        collection_name: Name of the collection
+        count: Number of IDs to reserve (for logging purposes)
+    
+    Returns:
+        Starting ID for the batch
+    """
+    # Find the maximum ID in the collection
+    current_max = db[collection_name].find_one(
+        sort=[('id', -1)],
+        projection={'id': 1}
+    )
+    
+    # If collection is empty, start at 1
+    if current_max is None or current_max.get('id') is None:
+        starting_id = 1
+    else:
+        starting_id = int(current_max['id']) + 1
+    
+    # Also update the counter to keep it in sync
+    counters = db['__counters__']
+    counters.find_one_and_update(
+        {'_id': collection_name},
+        {'$set': {'seq': starting_id + count - 1}},
+        upsert=True
+    )
+    
+    return starting_id
+
+
 class ColumnRef:
     def __init__(self, name: str):
         self.name = name
@@ -511,6 +547,9 @@ class Room(BaseModel):
 
 class Student(BaseModel):
     def __init__(self, **kwargs):
+        # Map current_semester to semester if provided
+        if 'current_semester' in kwargs:
+            kwargs['semester'] = kwargs.pop('current_semester')
         super().__init__(**kwargs)
         # Ensure default values for student selection context
         if not hasattr(self, 'program'): self.program = None
@@ -518,11 +557,20 @@ class Student(BaseModel):
         if not hasattr(self, 'semester'): self.semester = None
         if not hasattr(self, 'enrolled_courses'): self.enrolled_courses = []
 
+    @property
+    def current_semester(self):
+        return getattr(self, 'semester', None)
+
+    @current_semester.setter
+    def current_semester(self, value):
+        self.semester = value
+
     def to_dict(self):
         d = super().to_dict()
         d['program'] = getattr(self, 'program', None)
         d['branch'] = getattr(self, 'branch', None)
         d['semester'] = getattr(self, 'semester', None)
+        d['current_semester'] = getattr(self, 'semester', None)
         d['enrolled_courses'] = getattr(self, 'enrolled_courses', [])
         return d
 
@@ -532,13 +580,26 @@ class Student(BaseModel):
 
 class StudentGroup(BaseModel):
     def __init__(self, **kwargs):
-        # Map current_semester to semester if provided
+        # Map current_semester to semester if provided in constructor
         if 'current_semester' in kwargs:
             kwargs['semester'] = kwargs.pop('current_semester')
         super().__init__(**kwargs)
+        if not hasattr(self, 'name'): self.name = ""
+        if not hasattr(self, 'description'): self.description = ""
         if not hasattr(self, 'program'): self.program = None
         if not hasattr(self, 'branch'): self.branch = None
         if not hasattr(self, 'semester'): self.semester = None
+        if not hasattr(self, 'total_students'): self.total_students = 0
+        if not hasattr(self, 'batches'): self.batches = None
+
+    @property
+    def current_semester(self):
+        """Alias for semester for backward compatibility"""
+        return getattr(self, 'semester', None)
+
+    @current_semester.setter
+    def current_semester(self, value):
+        self.semester = value
 
     def to_dict(self):
         d = super().to_dict()

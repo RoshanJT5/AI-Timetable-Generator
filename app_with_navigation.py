@@ -975,16 +975,17 @@ def get_metadata():
         branch_programs = db._db['branch'].distinct('program')
         branch_names = db._db['branch'].distinct('name')  # Branch names (e.g., "Computer Science")
         
-        # Normalize to lowercase for consistency
+        from normalization import normalize_key
+        # Normalize to canonical format (lowercase, no dots/spaces)
         all_programs = set()
         for p in branch_programs:
-            if p and str(p).strip():
-                all_programs.add(str(p).lower().strip())
+            normalized = normalize_key(str(p))
+            if normalized: all_programs.add(normalized)
         
         all_branches = set()
         for b in branch_names:
-            if b and str(b).strip():
-                all_branches.add(str(b).lower().strip())
+            normalized = normalize_key(str(b))
+            if normalized: all_branches.add(normalized)
         
         programs = sorted(list(all_programs))
         branches = sorted(list(all_branches))
@@ -1025,6 +1026,27 @@ def login():
         password = request.form.get('password')
         
         user = User.query.filter_by(username=username).first()
+        
+        # ============================================
+        # BACKGROUND TASK PROTECTION
+        # ============================================
+        # Check if user account is still being created by background worker
+        if not user:
+            # Check if faculty/student exists but user account not yet created
+            faculty = Faculty.query.filter_by(username=username).first()
+            student = Student.query.filter_by(username=username).first()
+            
+            if faculty or student:
+                # Account exists in Faculty/Student but not in User yet
+                # Background worker is still processing
+                if request.headers.get('Content-Type') == 'application/json' or request.is_json:
+                    return jsonify({
+                        'status': 'processing',
+                        'message': 'Account is being finalized. Please wait 10 seconds and try again.'
+                    }), 202  # 202 Accepted
+                else:
+                    flash('⏳ Your account is being set up. Please wait 10 seconds and try again.', 'info')
+                    return render_template('login.html')
         
         if user and user.check_password(password):
             # Save user in case password was migrated from Werkzeug to bcrypt
@@ -1656,9 +1678,10 @@ def add_branch():
             return jsonify({'success': False, 'error': 'Degree program is required'}), 400
 
         # Normalize code: uppercase, trim, no spaces
+        from normalization import normalize_key
         code = str(data['code']).strip().upper().replace(" ", "")
-        name = str(data['name']).strip()
-        program = str(data['program']).strip()
+        name = normalize_key(data['name'])
+        program = normalize_key(data['program'])
         
         # Check if branch code already exists
         existing = Branch.query.filter_by(code=code).first()
@@ -2146,20 +2169,96 @@ def import_faculty():
         return jsonify({'success': False, 'error': 'No file uploaded'}), 400
     
     try:
-        chunks_generator = process_upload_stream(upload, chunk_size=1000)
-        required = {'name', 'username'}
+        import time
+        from background_tasks import queue_user_creation_task
+        from models import get_next_id_batch
+        from pymongo import UpdateOne
         
-        # Pre-fetch existing faculty to avoid N+1 queries
-        existing_faculty = {f.username: f for f in Faculty.query.all()}
+        start_time = time.time()
+        chunks_generator = process_upload_stream(upload, chunk_size=1000)
+        
+        DEFAULT_TEMP_PASSWORD = "ChangeMe@123"
+        
+        # ============================================
+        # PHASE 1: IN-MEMORY VALIDATION - Pre-fetch metadata
+        # ============================================
+        print("[Faculty Import] Pre-fetching metadata for validation...")
+        metadata_start = time.time()
+        
+        # Fetch valid departments from Branch collection
+        valid_departments = {
+            doc['name'].lower().strip() 
+            for doc in db._db['branch'].find({}, {'name': 1})
+            if doc.get('name')
+        }
+        
+        # Fetch valid programs and branches for validation
+        valid_programs = {
+            doc['program'].lower().strip() 
+            for doc in db._db['course'].find({}, {'program': 1})
+            if doc.get('program')
+        }
+        
+        valid_branches = {
+            doc['branch'].lower().strip() 
+            for doc in db._db['course'].find({}, {'branch': 1})
+            if doc.get('branch')
+        }
+        
+        # Build program-to-branches mapping for validation
+        program_branches_map = {}
+        for doc in db._db['course'].find({}, {'program': 1, 'branch': 1}):
+            program = doc.get('program', '').lower().strip()
+            branch = doc.get('branch', '').lower().strip()
+            if program and branch:
+                if program not in program_branches_map:
+                    program_branches_map[program] = set()
+                program_branches_map[program].add(branch)
+        
+        print(f"[Faculty Import] Metadata loaded in {time.time() - metadata_start:.2f}s")
+        
+        # ============================================
+        # PHASE 2: ATOMIC BULK OPERATIONS - Pre-fetch existing data
+        # ============================================
+        print("[Faculty Import] Pre-fetching existing faculty...")
+        prefetch_start = time.time()
+        
+        # Load into sets for O(1) lookups (NO model instantiation!)
+        existing_usernames = {
+            doc['username'] 
+            for doc in db._db['faculty'].find({}, {'username': 1})
+            if doc.get('username')
+        }
+        
+        existing_emails = {
+            doc['email'] 
+            for doc in db._db['faculty'].find({'email': {'$exists': True}}, {'email': 1})
+            if doc.get('email')
+        }
+        
+        print(f"[Faculty Import] Pre-fetch completed in {time.time() - prefetch_start:.2f}s")
+        print(f"[Faculty Import] Found {len(existing_usernames)} existing faculty")
         
         created = 0
         updated = 0
+        skipped = 0
+        validation_errors = []
+        pending_user_creation = []
+        
+        # Lists for bulk operations (RAW DICTIONARIES!)
+        faculty_to_insert = []
+        faculty_to_update = []
+        
+        # Get starting ID for batch
+        starting_id = get_next_id_batch(db._db, 'faculty', 1000)
+        current_id = starting_id
+        
+        total_rows_processed = 0
         
         for chunk_idx, chunk in enumerate(chunks_generator):
             # Validate columns on first chunk
             if chunk_idx == 0 and chunk:
                 available_columns = set(chunk[0].keys())
-                # Check for 'name' or 'full name' and 'username'
                 has_name = 'name' in available_columns or 'full name' in available_columns
                 if not has_name or 'username' not in available_columns:
                     missing = []
@@ -2170,20 +2269,65 @@ def import_faculty():
                         'error': f'Missing columns: {", ".join(missing)}'
                     }), 400
             
-            for row in chunk:
-                # Handle potential aliases from different template versions
+            # ============================================
+            # BUILD RAW DICTIONARIES (NO BaseModel!)
+            # ============================================
+            for row_idx, row in enumerate(chunk):
+                total_rows_processed += 1
                 name = str(row.get('full name', row.get('name', ''))).strip()
                 if not name:
+                    skipped += 1
                     continue
+                    
                 username = str(row.get('username', '')).strip()
                 email = str(row.get('email', '')).strip()
                 expertise = normalize_comma_list(row.get('expertise', ''))
                 
-                # Process departments field using helper
                 departments_value = row.get('departments', [])
                 departments_list = process_departments_field(departments_value)
                 
-                # Map min_hours/max_hours aliases from CSV
+                # In-memory validation of departments (only if provided and not empty)
+                # IMPORTANT: Make validation OPTIONAL - warn but don't skip if validation data is missing
+                if departments_list and valid_departments:  # Only validate if BOTH are provided
+                    invalid_departments = []
+                    for dept in departments_list:
+                        dept_lower = dept.lower().strip()
+                        if dept_lower and dept_lower not in valid_departments:
+                            invalid_departments.append(dept)
+                    
+                    if invalid_departments:
+                        # WARN but don't skip - validation is informational only
+                        print(f"[Faculty Import] WARNING Row {row_idx + 1}: Departments not in database: {', '.join(invalid_departments)}")
+                        # Don't skip - allow import to continue
+                elif departments_list and not valid_departments:
+                    # No departments in database - skip validation
+                    print(f"[Faculty Import] INFO: Skipping department validation (no departments in database)")
+                
+                # Validate program (only if provided and validation data exists)
+                program = str(row.get('program', '')).strip().lower()
+                if program and valid_programs:  # Only validate if BOTH are provided
+                    if program not in valid_programs:
+                        # WARN but don't skip
+                        print(f"[Faculty Import] WARNING Row {row_idx + 1}: Program '{program}' not in database")
+                elif program and not valid_programs:
+                    print(f"[Faculty Import] INFO: Skipping program validation (no programs in database)")
+                
+                # Validate branch (only if provided and validation data exists)
+                branch = str(row.get('branch', '')).strip().lower()
+                if branch and valid_branches:  # Only validate if BOTH are provided
+                    if branch not in valid_branches:
+                        # WARN but don't skip
+                        print(f"[Faculty Import] WARNING Row {row_idx + 1}: Branch '{branch}' not in database")
+                elif branch and not valid_branches:
+                    print(f"[Faculty Import] INFO: Skipping branch validation (no branches in database)")
+                
+                # Validate program-branch combination (only if both provided and validation data exists)
+                if program and branch and program_branches_map:
+                    valid_branches_for_program = program_branches_map.get(program, set())
+                    if valid_branches_for_program and branch not in valid_branches_for_program:
+                        # WARN but don't skip
+                        print(f"[Faculty Import] WARNING Row {row_idx + 1}: Branch '{branch}' may not be valid for program '{program}'")
+                
                 min_hours = parse_int(row.get('min_hours', row.get('min_hours_per_week')), 4)
                 max_hours = parse_int(row.get('max_hours', row.get('max_hours_per_week')), 16)
 
@@ -2193,44 +2337,190 @@ def import_faculty():
                 elif not isinstance(raw_availability, str) or not raw_availability.strip():
                     raw_availability = '{}'
                 
-                payload = {
-                    'name': name,
-                    'email': email,
-                    'expertise': expertise,
-                    'departments': departments_list,
-                    'username': username,
-                    'password': str(row.get('password', '')).strip(),
-                    'min_hours_per_week': min_hours,
-                    'max_hours_per_week': max_hours,
-                    'availability': raw_availability
-                }
-                
-                faculty = existing_faculty.get(username)
-                if faculty:
-                    faculty.name = name
-                    faculty.email = email
-                    faculty.expertise = ','.join(expertise)
-                    faculty.departments = departments_list
-                    faculty.min_hours_per_week = min_hours
-                    faculty.max_hours_per_week = max_hours
-                    faculty.availability = raw_availability
+                # O(1) lookup in set!
+                if username in existing_usernames:
+                    # Prepare for bulk update
+                    faculty_to_update.append({
+                        'username': username,
+                        'name': name,
+                        'email': email,
+                        'expertise': ','.join(expertise),
+                        'departments': departments_list,
+                        'min_hours_per_week': min_hours,
+                        'max_hours_per_week': max_hours,
+                        'availability': raw_availability
+                    })
                     updated += 1
-                    db.session.add(faculty)
-                    continue
-
-                new_fac, _ = create_faculty_profile(payload)
-                existing_faculty[username] = new_fac
-                created += 1
-            
-            # Commit after each chunk
-            db.session.commit()
+                else:
+                    # ============================================
+                    # RAW DICTIONARY (NO BaseModel!)
+                    # ============================================
+                    faculty_to_insert.append({
+                        'id': current_id,  # Increment in memory!
+                        'name': name,
+                        'email': email,
+                        'expertise': ','.join(expertise),
+                        'availability': raw_availability,
+                        'username': username if username else None,  # Allow empty username
+                        'min_hours_per_week': min_hours,
+                        'max_hours_per_week': max_hours,
+                        'user_id': None,  # Will be set by background task
+                        'departments': departments_list
+                    })
+                    
+                    if username:  # Only add to set if username exists
+                        existing_usernames.add(username)  # Prevent duplicates
+                    created += 1
+                    
+                    # Queue for background processing ONLY if username exists
+                    if username:
+                        pending_user_creation.append({
+                            'username': username,
+                            'name': name,
+                            'email': email or f'{username}@faculty.local',
+                            'entity_id': current_id
+                        })
+                    
+                    current_id += 1  # Increment in memory!
         
-        return jsonify({'success': True, 'created': created, 'updated': updated})
+        # ============================================
+        # PHASE 2: ATOMIC BULK INSERTION (ONE database call!)
+        # ============================================
+        print(f"[Faculty Import] ========== BULK OPERATIONS DEBUG ==========")
+        print(f"[Faculty Import] Total rows processed: {total_rows_processed}")
+        print(f"[Faculty Import] Created counter: {created}")
+        print(f"[Faculty Import] Updated counter: {updated}")
+        print(f"[Faculty Import] Skipped counter: {skipped}")
+        print(f"[Faculty Import] faculty_to_insert list size: {len(faculty_to_insert)}")
+        print(f"[Faculty Import] faculty_to_update list size: {len(faculty_to_update)}")
+        
+        # Show sample of first faculty to insert (if any)
+        if faculty_to_insert:
+            print(f"[Faculty Import] Sample faculty to insert: {faculty_to_insert[0]}")
+        else:
+            print(f"[Faculty Import] WARNING: faculty_to_insert is EMPTY!")
+        
+        print(f"[Faculty Import] Performing bulk operations...")
+        bulk_start = time.time()
+        
+        # Bulk insert (ONE call, NO BaseModel overhead!)
+        if faculty_to_insert:
+            try:
+                result = db._db['faculty'].insert_many(faculty_to_insert, ordered=False)
+                print(f"[Faculty Import] ✓ Successfully inserted {len(result.inserted_ids)} faculty in {time.time() - bulk_start:.2f}s")
+            except Exception as e:
+                print(f"[Faculty Import] ✗ Error during bulk insert: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+        else:
+            print(f"[Faculty Import] ⚠️ Skipping bulk insert (faculty_to_insert is empty)")
+        
+        # Bulk update (ONE call!)
+        if faculty_to_update:
+            try:
+                bulk_ops = [
+                    UpdateOne(
+                        {'username': fac['username']},
+                        {'$set': {
+                            'name': fac['name'],
+                            'email': fac['email'],
+                            'expertise': fac['expertise'],
+                            'departments': fac['departments'],
+                            'min_hours_per_week': fac['min_hours_per_week'],
+                            'max_hours_per_week': fac['max_hours_per_week'],
+                            'availability': fac['availability']
+                        }}
+                    )
+                    for fac in faculty_to_update
+                ]
+                result = db._db['faculty'].bulk_write(bulk_ops, ordered=False)
+                print(f"[Faculty Import] Updated {result.modified_count} faculty")
+            except Exception as e:
+                print(f"[Faculty Import] Error during bulk update: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+        else:
+            print(f"[Faculty Import] No faculty to update (faculty_to_update is empty)")
+        
+        bulk_time = time.time() - bulk_start
+        elapsed_time = time.time() - start_time
+        
+        # ============================================
+        # PHASE 3: BACKGROUND HASHING - Queue user creation
+        # ============================================
+        if pending_user_creation:
+            queue_user_creation_task(
+                user_data_list=pending_user_creation,
+                default_password=DEFAULT_TEMP_PASSWORD,
+                user_type='faculty'
+            )
+            print(f"[Faculty Import] Queued {len(pending_user_creation)} accounts for background creation")
+        
+        # Invalidate cache to ensure fresh data is shown
+        invalidate_cache('faculty')
+        
+        print(f"[Faculty Import] TOTAL: {elapsed_time:.2f}s - Created: {created}, Updated: {updated}, Skipped: {skipped}")
+        print(f"[Faculty Import] Performance: Metadata={time.time() - metadata_start:.2f}s, Bulk={bulk_time:.2f}s")
+        print(f"[Faculty Import] Inserted: {len(faculty_to_insert)}, Updated: {len(faculty_to_update)}")
+        print(f"[Faculty Import] Total rows processed: {total_rows_processed}")
+        
+        # Debug: Check if data was actually inserted
+        if faculty_to_insert:
+            # Verify insertion by checking one record
+            sample_username = faculty_to_insert[0].get('username')
+            if sample_username:
+                verify = db._db['faculty'].find_one({'username': sample_username})
+                if verify:
+                    print(f"[Faculty Import] ✓ Verified: Sample record with username '{sample_username}' exists in database")
+                else:
+                    print(f"[Faculty Import] ✗ WARNING: Sample record with username '{sample_username}' NOT found in database!")
+        
+        # Build response message
+        if created == 0 and updated == 0:
+            # No data was imported - this might indicate an issue
+            message = f"⚠️ No faculty were imported. "
+            if skipped > 0:
+                message += f"Skipped: {skipped} rows (validation errors). "
+            if total_rows_processed == 0:
+                message += "No rows were processed from the file."
+            else:
+                message += f"Processed {total_rows_processed} rows but none were imported. Check validation errors."
+            if validation_errors:
+                message += f"\n\nFirst few errors:\n" + "\n".join(validation_errors[:5])
+        else:
+            message = f"Import successful! Created: {created}, Updated: {updated}"
+            if skipped > 0:
+                message += f", Skipped: {skipped} (validation errors)"
+            if pending_user_creation:
+                message += f"\n\n⏳ Creating {len(pending_user_creation)} login accounts in background...\n"
+                message += f"Default password: '{DEFAULT_TEMP_PASSWORD}'\n"
+                message += f"Accounts will be ready in ~5 seconds."
+        
+        response = {
+            'success': True, 
+            'created': created, 
+            'updated': updated,
+            'skipped': skipped,
+            'time_taken': f"{elapsed_time:.2f}s",
+            'message': message,
+            'background_tasks': len(pending_user_creation),
+            'default_password': DEFAULT_TEMP_PASSWORD if pending_user_creation else None,
+            'total_rows_processed': total_rows_processed
+        }
+        
+        if validation_errors:
+            response['validation_errors'] = validation_errors[:10]  # First 10 errors
+            response['total_errors'] = len(validation_errors)
+        
+        return jsonify(response)
     
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:
-        db.session.rollback()
+        import traceback
+        print(f"[Faculty Import Error] {traceback.format_exc()}")
         return jsonify({'success': False, 'error': f'Import failed: {str(exc)}'}), 500
 
 
@@ -2519,14 +2809,63 @@ def import_students():
         return jsonify({'success': False, 'error': 'No file uploaded'}), 400
     
     try:
+        import time
+        from background_tasks import queue_user_creation_task
+        from models import get_next_id_batch
+        from pymongo import UpdateOne
+        
+        start_time = time.time()
         chunks_generator = process_upload_stream(upload, chunk_size=1000)
         required = {'student_id', 'name'}
         
-        # Pre-fetch
-        existing_students = {s.student_id: s for s in Student.query.all()}
-        existing_users = {u.username: u for u in User.query.all()}
+        DEFAULT_TEMP_PASSWORD = "Student@123"
         
-        created, updated = 0, 0
+        # ============================================
+        # PHASE 1: IN-MEMORY VALIDATION - Pre-fetch existing data
+        # ============================================
+        print("[Student Import] Pre-fetching existing data...")
+        prefetch_start = time.time()
+        
+        # Load into sets and mappings for O(1) lookups (NO model instantiation!)
+        existing_student_ids = set()
+        student_id_to_db_id = {}  # Map student_id to database id for linking users
+        existing_student_usernames = set()
+        
+        for doc in db._db['student'].find({}, {'student_id': 1, 'id': 1, 'username': 1}):
+            if doc.get('student_id'):
+                existing_student_ids.add(doc['student_id'])
+                student_id_to_db_id[doc['student_id']] = doc.get('id')
+            if doc.get('username'):
+                existing_student_usernames.add(doc['username'])
+        
+        existing_user_usernames = {
+            doc['username'] 
+            for doc in db._db['user'].find({}, {'username': 1})
+            if doc.get('username')
+        }
+        
+        # Map username to user_id for existing users
+        username_to_user_id = {
+            doc['username']: doc.get('id')
+            for doc in db._db['user'].find({}, {'username': 1, 'id': 1})
+            if doc.get('username')
+        }
+        
+        print(f"[Student Import] Pre-fetch completed in {time.time() - prefetch_start:.2f}s")
+        print(f"[Student Import] Found {len(existing_student_ids)} existing students")
+        
+        created = 0
+        updated = 0
+        pending_user_creation = []
+        
+        # Lists for bulk operations (RAW DICTIONARIES!)
+        students_to_insert = []
+        students_to_update = []
+        users_to_update = []  # For existing users that need role updates
+        
+        # Get starting IDs for batch
+        student_starting_id = get_next_id_batch(db._db, 'student', 1000)
+        current_student_id = student_starting_id
         
         for chunk_idx, chunk in enumerate(chunks_generator):
             if chunk_idx == 0 and chunk:
@@ -2538,72 +2877,168 @@ def import_students():
                         'error': f'Missing columns: {", ".join(sorted(missing))}'
                     }), 400
             
+            # ============================================
+            # BUILD RAW DICTIONARIES (NO BaseModel!)
+            # ============================================
             for row in chunk:
                 student_id = str(row.get('student_id', '')).strip()
-                if not student_id: continue
+                if not student_id:
+                    continue
                 
                 name = str(row.get('name', '')).strip()
                 enrolled_courses = str(row.get('enrolled_courses', '')).strip()
                 username = str(row.get('username', '')).strip()
-                password = str(row.get('password', '')).strip()
+                program = normalize_string(row.get('program', ''))
+                branch = normalize_string(row.get('branch', ''))
+                semester = parse_int(row.get('semester'), 0)
+
                 
-                student = existing_students.get(student_id)
-                
-                # User logic
-                user_id = None
-                if username:
-                    u = existing_users.get(username)
-                    if u:
-                        if u.role != 'student':
-                            u.role = 'student'
-                        u.name = name
-                        if password:
-                            u.set_password(password)
-                        db.session.add(u)
-                        user_id = u.id
-                    else:
-                        email = f"{username}@student.local"
-                        u = User(username=username, email=email, role='student', name=name)
-                        if password:
-                            u.set_password(password)
-                        else:
-                            u.set_password(secrets.token_urlsafe(8))
-                        
-                        # Generate ID manually for linking
-                        u.id = get_next_id(db._db, 'user')
-                        
-                        existing_users[username] = u
-                        db.session.add(u)
-                        user_id = u.id
-                
-                if student:
-                    student.name = name
-                    student.enrolled_courses = enrolled_courses
+                # O(1) lookup in set!
+                if student_id in existing_student_ids:
+                    # Prepare for bulk update
+                    student_db_id = student_id_to_db_id.get(student_id)
+                    update_data = {
+                        'student_id': student_id,
+                        'name': name,
+                        'enrolled_courses': enrolled_courses,
+                        'program': program,
+                        'branch': branch,
+                        'semester': semester
+                    }
+                    
+                    # Handle username/user_id if provided
                     if username:
-                        student.username = username
-                        student.user_id = user_id
+                        update_data['username'] = username
+                        # If user exists, link it immediately
+                        if username in existing_user_usernames:
+                            user_id = username_to_user_id.get(username)
+                            if user_id:
+                                update_data['user_id'] = user_id
+                            # Update user role if needed
+                            users_to_update.append({
+                                'username': username,
+                                'name': name,
+                                'role': 'student'
+                            })
+                        # If user doesn't exist, queue for background creation
+                        elif username not in existing_student_usernames:
+                            pending_user_creation.append({
+                                'username': username,
+                                'name': name,
+                                'email': f'{username}@student.local',
+                                'entity_id': student_db_id  # Link to existing student
+                            })
+                    
+                    students_to_update.append(update_data)
                     updated += 1
-                    db.session.add(student)
                 else:
-                    student = Student(
-                        student_id=student_id,
-                        name=name,
-                        enrolled_courses=enrolled_courses,
-                        username=username or None,
-                        user_id=user_id
-                    )
-                    existing_students[student_id] = student
-                    db.session.add(student)
+                    # ============================================
+                    # RAW DICTIONARY (NO BaseModel!)
+                    # ============================================
+                    student_dict = {
+                        'id': current_student_id,
+                        'student_id': student_id,
+                        'name': name,
+                        'enrolled_courses': enrolled_courses,
+                        'username': username or None,
+                        'user_id': None,  # Will be set by background task
+                        'program': program,
+                        'branch': branch,
+                        'semester': semester
+                    }
+                    
+                    students_to_insert.append(student_dict)
+                    existing_student_ids.add(student_id)  # Prevent duplicates
+                    student_id_to_db_id[student_id] = current_student_id  # Track for potential updates
                     created += 1
-            
-            db.session.commit()
-            
-        return jsonify({'success': True, 'created': created, 'updated': updated})
+                    
+                    # Queue user account creation for background processing
+                    if username and username not in existing_user_usernames:
+                        pending_user_creation.append({
+                            'username': username,
+                            'name': name,
+                            'email': f'{username}@student.local',
+                            'entity_id': current_student_id
+                        })
+                    
+                    current_student_id += 1  # Increment in memory!
+        
+        # ============================================
+        # PHASE 2: ATOMIC BULK INSERTION (ONE database call!)
+        # ============================================
+        print(f"[Student Import] Performing bulk operations...")
+        bulk_start = time.time()
+        
+        # Bulk insert (ONE call, NO BaseModel overhead!)
+        if students_to_insert:
+            db._db['student'].insert_many(students_to_insert, ordered=False)
+            print(f"[Student Import] Inserted {len(students_to_insert)} students in {time.time() - bulk_start:.2f}s")
+        
+        # Bulk update (ONE call!)
+        if students_to_update:
+            bulk_ops = []
+            for student_update in students_to_update:
+                student_id_val = student_update.pop('student_id')
+                bulk_ops.append(
+                    UpdateOne(
+                        {'student_id': student_id_val},
+                        {'$set': student_update}
+                    )
+                )
+            db._db['student'].bulk_write(bulk_ops, ordered=False)
+            print(f"[Student Import] Updated {len(students_to_update)} students")
+        
+        # Update existing users (if any)
+        if users_to_update:
+            for user_update in users_to_update:
+                db._db['user'].update_one(
+                    {'username': user_update['username']},
+                    {'$set': {
+                        'name': user_update['name'],
+                        'role': user_update['role']
+                    }}
+                )
+            print(f"[Student Import] Updated {len(users_to_update)} existing users")
+        
+        bulk_time = time.time() - bulk_start
+        elapsed_time = time.time() - start_time
+        
+        # ============================================
+        # PHASE 3: BACKGROUND HASHING - Queue user creation
+        # ============================================
+        if pending_user_creation:
+            queue_user_creation_task(
+                user_data_list=pending_user_creation,
+                default_password=DEFAULT_TEMP_PASSWORD,
+                user_type='student'
+            )
+            print(f"[Student Import] Queued {len(pending_user_creation)} accounts for background creation")
+        
+        print(f"[Student Import] TOTAL: {elapsed_time:.2f}s - Created: {created}, Updated: {updated}")
+        print(f"[Student Import] Performance: Pre-fetch={time.time() - prefetch_start:.2f}s, Bulk={bulk_time:.2f}s")
+        
+        # Build response message
+        message = f"Import successful! Created: {created}, Updated: {updated}"
+        if pending_user_creation:
+            message += f"\n\n⏳ Creating {len(pending_user_creation)} login accounts in background...\n"
+            message += f"Default password: '{DEFAULT_TEMP_PASSWORD}'\n"
+            message += f"Accounts will be ready in ~5 seconds."
+        
+        return jsonify({
+            'success': True, 
+            'created': created, 
+            'updated': updated,
+            'time_taken': f"{elapsed_time:.2f}s",
+            'message': message,
+            'background_tasks': len(pending_user_creation),
+            'default_password': DEFAULT_TEMP_PASSWORD if pending_user_creation else None
+        })
 
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except Exception as exc:
-        db.session.rollback()
+        import traceback
+        print(f"[Student Import Error] {traceback.format_exc()}")
         return jsonify({'success': False, 'error': f'Import failed: {str(exc)}'}), 500
 
 @app.route('/students/delete-all', methods=['POST'])
@@ -2840,90 +3275,117 @@ def student_groups():
             'batches': batches
         })
     
-    # SINGLE SOURCE OF TRUTH: Fetch available programs and branches from Branch collection
+    # ============================================
+    # CRITICAL: Fetch from Course collection (single source of truth)
+    # ============================================
     # This ensures student groups can only be created for programs/branches that exist in Courses
     try:
-        branch_programs = db._db['branch'].distinct('program')
-        branch_names = db._db['branch'].distinct('name')
+        # Use MongoDB distinct() to get unique programs and branches from Course collection
+        available_programs = db._db['course'].distinct('program')
+        available_branches = db._db['course'].distinct('branch')
         
         # Normalize to lowercase for consistency
-        available_programs = sorted([str(p).lower().strip() for p in branch_programs if p and str(p).strip()])
-        available_branches = sorted([str(b).lower().strip() for b in branch_names if b and str(b).strip()])
+        available_programs = sorted([str(p).lower().strip() for p in available_programs if p and str(p).strip()])
+        available_branches = sorted([str(b).lower().strip() for b in available_branches if b and str(b).strip()])
+        
+        # Build program-to-branches mapping for dynamic filtering
+        # This prevents creating "Mechanical" group for "Computer Science" program
+        program_branches_map = {}
+        for program in available_programs:
+            # Get all branches for this program
+            branches = db._db['course'].distinct('branch', {'program': program})
+            program_branches_map[program] = sorted([str(b).lower().strip() for b in branches if b and str(b).strip()])
+        
+        print(f"[STUDENT_GROUPS] Programs: {available_programs}")
+        print(f"[STUDENT_GROUPS] Branches: {available_branches}")
+        print(f"[STUDENT_GROUPS] Program-Branch mapping: {program_branches_map}")
+        
     except Exception as e:
         print(f"[STUDENT_GROUPS] Error fetching metadata: {str(e)}")
+        import traceback
+        traceback.print_exc()
         available_programs = []
         available_branches = []
+        program_branches_map = {}
     
     return render_template(
         'student_groups.html',
         groups=groups,
         user=user,
         available_programs=available_programs,
-        available_branches=available_branches
+        available_branches=available_branches,
+        program_branches_map=program_branches_map  # Pass mapping to frontend
     )
 
 @app.route('/student-groups/add', methods=['POST'])
 @admin_required
 def add_student_group():
-    data = request.json
-    # Validate name
-    name = (data.get('name') or '').strip()
-    if not name:
-        return jsonify({'success': False, 'error': 'Class name is required.'}), 400
-
-    # Prevent duplicate names (return friendly error instead of raising DB exception)
-    existing = StudentGroup.query.filter_by(name=name).first()
-    if existing:
-        return jsonify({'success': False, 'error': f'A class named "{name}" already exists.'}), 400
-    batches = data.get('batches')
-    # Ensure batches is stored as JSON string if provided as list/dict
-    if isinstance(batches, (list, dict)):
-        batches_json = json.dumps(batches)
-    else:
-        batches_json = batches or None
-
-    total_students = None
     try:
-        total_students = int(data.get('total_students')) if data.get('total_students') not in (None, '') else None
-    except (TypeError, ValueError):
+        data = request.json
+        # Validate name
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'error': 'Class name is required.'}), 400
+
+        # Prevent duplicate names
+        existing = StudentGroup.query.filter_by(name=name).first()
+        if existing:
+            return jsonify({'success': False, 'error': f'A class named "{name}" already exists.'}), 400
+        
+        batches = data.get('batches')
+        if isinstance(batches, (list, dict)):
+            batches_json = json.dumps(batches)
+        else:
+            batches_json = batches or None
+
         total_students = None
+        try:
+            total_students = int(data.get('total_students')) if data.get('total_students') not in (None, '') else None
+        except (TypeError, ValueError):
+            total_students = None
 
-    # NORMALIZE program and branch to canonical format (same as course imports)
-    from normalization import normalize_key
-    program_raw = (data.get('program') or '').strip()
-    program = normalize_key(program_raw) if program_raw else None
-    
-    branch_raw = (data.get('branch') or '').strip()
-    branch = normalize_key(branch_raw) if branch_raw else None
+        from normalization import normalize_key
+        program = normalize_key(data.get('program', ''))
+        branch = normalize_key(data.get('branch', ''))
+        semester = parse_int(data.get('semester') or data.get('current_semester'), 0)
 
-    group = StudentGroup(
-        name=name,
-        description=data.get('description', ''),
-        program=program,
-        branch=branch,
-        current_semester=parse_int(data.get('semester') or data.get('current_semester'), 0),
-        total_students=total_students,
-        batches=batches_json
-    )
-    db.session.add(group)
-    try:
+        group = StudentGroup(
+            name=name,
+            description=data.get('description', ''),
+            program=program,
+            branch=branch,
+            semester=semester,
+            total_students=total_students,
+            batches=batches_json
+        )
+        
+        print(f"[DEBUG] Saving StudentGroup: {name} (Sem: {semester})")
+        db.session.add(group)
         db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': f'A class named "{name}" already exists.'}), 400
-    return jsonify({
-        'success': True,
-        'message': 'Student group created successfully',
-        'group': {
-            'id': group.id,
-            'name': group.name,
-            'description': group.description or '',
-            'program': group.program or '',
-            'branch': group.branch or '',
-            'semester': group.current_semester or 0,
-            'total_students': group.total_students or 0
+        invalidate_cache('student_groups')
+        
+        # Safe dictionary for response
+        res_group = {
+            'id': getattr(group, 'id', None),
+            'name': getattr(group, 'name', ''),
+            'description': getattr(group, 'description', ''),
+            'program': getattr(group, 'program', ''),
+            'branch': getattr(group, 'branch', ''),
+            'semester': getattr(group, 'semester', 0),
+            'total_students': getattr(group, 'total_students', 0)
         }
-    })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Student group created successfully',
+            'group': res_group
+        })
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] add_student_group failed: {str(e)}")
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f"Server Error: {str(e)}"}), 500
 
 @app.route('/api/student-group/<int:group_id>/update', methods=['POST'])
 @admin_required
@@ -3270,23 +3732,24 @@ def timetable():
     all_groups = StudentGroup.query.all()
     
     # Get unique programs (from both courses and groups)
+    from normalization import normalize_key
     programs_set = set()
     for c in all_courses:
-        if getattr(c, 'program', None):
-            programs_set.add(c.program)
+        p = getattr(c, 'program', None)
+        if p: programs_set.add(normalize_key(str(p)))
     for g in all_groups:
-        if getattr(g, 'program', None):
-            programs_set.add(g.program)
+        p = getattr(g, 'program', None)
+        if p: programs_set.add(normalize_key(str(p)))
     programs = sorted(list(programs_set))
     
     # Get unique branches
     branches_set = set()
     for c in all_courses:
-        if getattr(c, 'branch', None):
-            branches_set.add(c.branch)
+        b = getattr(c, 'branch', None)
+        if b: branches_set.add(normalize_key(str(b)))
     for g in all_groups:
-        if getattr(g, 'branch', None):
-            branches_set.add(g.branch)
+        b = getattr(g, 'branch', None)
+        if b: branches_set.add(normalize_key(str(b)))
     branches = sorted(list(branches_set))
     
     # Get unique semesters
@@ -3294,11 +3757,15 @@ def timetable():
     for c in all_courses:
         sem = getattr(c, 'semester', None)
         if sem is not None:
-            semesters_set.add(sem)
+            try:
+                semesters_set.add(int(sem))
+            except (ValueError, TypeError): pass
     for g in all_groups:
         sem = getattr(g, 'semester', None)
         if sem is not None:
-            semesters_set.add(sem)
+            try:
+                semesters_set.add(int(sem))
+            except (ValueError, TypeError): pass
     semesters = sorted(list(semesters_set))
 
     response = make_response(render_template('timetable.html', 
@@ -3425,7 +3892,7 @@ def generate_timetable():
             all_groups = StudentGroup.query.all()
             available_programs = set(g.program for g in all_groups if g.program)
             available_branches = set(g.branch for g in all_groups if g.branch)
-            available_semesters = set(g.current_semester for g in all_groups if g.current_semester)
+            available_semesters = set(getattr(g, 'semester', 0) for g in all_groups if getattr(g, 'semester', 0))
             
             print(f"  Programs: {sorted(available_programs)}")
             print(f"  Branches: {sorted(available_branches)}")
@@ -4002,14 +4469,21 @@ def export_timetable():
 def get_timetable_history():
     """Get list of all saved timetable histories"""
     try:
-        histories = TimetableHistory.query.order_by(TimetableHistory.id.desc()).all()
+        # Optimization: Use projection to EXCLUDE the heavy 'entries' field
+        # This prevents loading potentially hundreds of megabytes of JSON just for a list
+        histories = TimetableHistory.query.options({'entries': 0}).order_by(TimetableHistory.id.desc()).all()
         
         history_list = []
         for h in histories:
             try:
-                filters = json.loads(getattr(h, 'filters', '{}'))
-                stats = json.loads(getattr(h, 'stats', '{}'))
-            except:
+                # Use getattr with default to handle cases where field might be missing
+                filters_str = getattr(h, 'filters', '{}') or '{}'
+                stats_str = getattr(h, 'stats', '{}') or '{}'
+                
+                filters = json.loads(filters_str) if isinstance(filters_str, str) else filters_str
+                stats = json.loads(stats_str) if isinstance(stats_str, str) else stats_str
+            except Exception as e:
+                print(f"[HISTORY API] JSON Parse Error for history {getattr(h, 'id')}: {e}")
                 filters = {}
                 stats = {}
             
@@ -4087,28 +4561,31 @@ def load_timetable_history(history_id):
         TimetableEntry.query.delete()
         db.session.commit()
         
-        # Restore entries from history
-        restored_count = 0
+        # Restore entries from history using bulk insert for speed
+        restored_entries = []
         for entry_data in entries_data:
-            entry = TimetableEntry(
-                time_slot_id=entry_data.get('time_slot_id'),
-                course_id=entry_data.get('course_id'),
-                faculty_id=entry_data.get('faculty_id'),
-                room_id=entry_data.get('room_id'),
-                student_group=entry_data.get('student_group')
-            )
-            db.session.add(entry)
-            restored_count += 1
+            restored_entries.append({
+                'id': get_next_id(db._db, 'timetableentry'), # Use direct helper for IDs
+                'time_slot_id': entry_data.get('time_slot_id'),
+                'course_id': entry_data.get('course_id'),
+                'faculty_id': entry_data.get('faculty_id'),
+                'room_id': entry_data.get('room_id'),
+                'student_group': entry_data.get('student_group')
+            })
+            
+        if restored_entries:
+            db._db['timetableentry'].insert_many(restored_entries, ordered=False)
+        
+        restored_count = len(restored_entries)
         
         # Mark this history as active
         db._db['timetablehistory'].update_many(
             {'is_active': True},
             {'$set': {'is_active': False}}
         )
-        history.is_active = True
-        db.session.add(history)
+        db._db['timetablehistory'].update_one({'id': history_id}, {'$set': {'is_active': True}})
         
-        db.session.commit()
+        invalidate_cache('timetable_view')
         invalidate_cache('timetable_view')
         
         return jsonify({
@@ -4210,6 +4687,20 @@ def reset_timetable_history():
 
 
 if __name__ == '__main__':
+    # Start background worker for async user account creation
+    try:
+        from background_tasks import start_background_worker
+        
+        def get_db_session():
+            """Factory function to get a fresh database session for background tasks"""
+            return db.session
+        
+        start_background_worker(get_db_session)
+        print("[Background Worker] Initialized for async user account creation")
+    except Exception as e:
+        print(f"[Background Worker] Failed to start: {e}")
+        print("[Background Worker] Imports will still work but may be slower")
+    
     # Run with reloader disabled to avoid Windows socket errors
     
     # ONE-TIME DATA MIGRATION: Normalize program/branch keys

@@ -16,6 +16,7 @@ from models import (
     StudentGroup,
     PeriodConfig,
 )
+from normalization import normalize_key
 
 
 @dataclass(frozen=True)
@@ -1007,20 +1008,16 @@ class TimetableGenerator:
             group_id = id(group)  # Use object id as cache key
             if group_id not in self._group_cache:
                 # Normalize and cache group attributes
-                g_prog = getattr(group, 'program', None)
+                g_prog = normalize_key(getattr(group, 'program', None))
                 g_sem = getattr(group, 'semester', None)
-                g_branch = getattr(group, 'branch', None)
+                g_branch = normalize_key(getattr(group, 'branch', None))
                 
-                # Normalize
-                if g_prog:
-                    g_prog = str(g_prog).strip().lower()
+                # Ensure sem is integer
                 if g_sem is not None:
                     try:
                         g_sem = int(g_sem)
                     except (ValueError, TypeError):
                         g_sem = None
-                if g_branch:
-                    g_branch = str(g_branch).strip().lower()
                 
                 self._group_cache[group_id] = (g_prog, g_sem, g_branch)
             else:

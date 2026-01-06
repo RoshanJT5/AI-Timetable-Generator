@@ -835,6 +835,11 @@
             }
         }
 
+        .spin {
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
         /* ===== Toast Notifications ===== */
         .toast-container {
             position: fixed;
@@ -996,7 +1001,7 @@
             showLoading: () => document.getElementById('loadingOverlay').classList.add('active'),
             hideLoading: () => document.getElementById('loadingOverlay').classList.remove('active'),
 
-            showToast: (message, type = 'info') => {
+            showToast: (message, type = 'info', duration = 3000) => {
                 const container = document.getElementById('toastContainer');
                 const toast = document.createElement('div');
                 toast.className = `toast-notification ${type}`;
@@ -1005,27 +1010,60 @@
                 if (type === 'success') icon = 'check-circle';
                 if (type === 'error') icon = 'exclamation-circle';
                 if (type === 'warning') icon = 'exclamation-triangle';
+                if (type === 'saving') icon = 'arrow-repeat spin';
 
                 toast.innerHTML = `
-                    <i class="bi bi-${icon} me-2 fs-5 text-${type}"></i>
+                    <i class="bi bi-${icon} me-2 fs-5 text-${type === 'saving' ? 'primary' : type}"></i>
                     <div>
-                        <div class="fw-bold text-capitalize">${type}</div>
-                        <div class="small">${message}</div>
+                        <div class="fw-bold text-capitalize">${type === 'saving' ? 'Saving...' : type}</div>
+                        <div class="small toast-message">${message}</div>
                     </div>
                 `;
 
                 container.appendChild(toast);
 
-                // Trigger animation
                 requestAnimationFrame(() => {
                     toast.classList.add('show');
                 });
 
-                // Remove after 3s
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                    setTimeout(() => toast.remove(), 300);
-                }, 3000);
+                if (duration > 0) {
+                    setTimeout(() => {
+                        toast.classList.remove('show');
+                        setTimeout(() => toast.remove(), 300);
+                    }, duration);
+                }
+
+                return {
+                    close: () => {
+                        toast.classList.remove('show');
+                        setTimeout(() => toast.remove(), 300);
+                    },
+                    update: (newMessage, newType) => {
+                        const messageEl = toast.querySelector('.toast-message');
+                        const titleEl = toast.querySelector('.fw-bold');
+                        const iconEl = toast.querySelector('i');
+
+                        if (newMessage) messageEl.textContent = newMessage;
+                        if (newType) {
+                            toast.className = `toast-notification ${newType} show`;
+                            titleEl.textContent = newType.charAt(0).toUpperCase() + newType.slice(1);
+
+                            let newIcon = 'info-circle';
+                            if (newType === 'success') newIcon = 'check-circle';
+                            if (newType === 'error') newIcon = 'exclamation-circle';
+
+                            iconEl.className = `bi bi-${newIcon} me-2 fs-5 text-${newType}`;
+                        }
+
+                        // Auto-remove after update if it was a 'saving' toast
+                        if (newType !== 'saving') {
+                            setTimeout(() => {
+                                toast.classList.remove('show');
+                                setTimeout(() => toast.remove(), 300);
+                            }, 3000);
+                        }
+                    }
+                };
             },
 
             confirm: (message, onConfirm) => {
@@ -1034,7 +1072,6 @@
                 const modal = new bootstrap.Modal(modalEl);
                 const btn = document.getElementById('confirmBtn');
 
-                // Clone to remove old listeners
                 const newBtn = btn.cloneNode(true);
                 btn.parentNode.replaceChild(newBtn, btn);
 
