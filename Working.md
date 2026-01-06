@@ -101,3 +101,12 @@ PlanSphere.AI is an advanced, AI-powered automatic timetable generation system d
 ## 5. Development Notes
 *   **Configuration**: Environment variables are managed via `.env` (e.g., `MONGO_URI`, `SECRET_KEY`).
 *   **Deployment**: The app is production-ready with `gunicorn` configuration, but includes `debug` mode logic in `app_with_navigation.py` for local dev.
+
+### Recent Critical Fixes & Improvements (Jan 2026)
+1.  **Robust Solver Architecture**: 
+    *   **Fallback Logic**: The scheduler (`scheduler.py`) now includes robust error handling for the PuLP solver. If the primary CBC solver fails (common on some Windows/cloud environments), it automatically falls back to GLPK or CHOCO solvers, preventing application crashes.
+2.  **Semester Synchronization Fix**:
+    *   **Data Migration**: Implemented a startup migration in `app_with_navigation.py` that automatically detects and fixes "Semester 0" data anomalies.
+    *   **Frontend Validation**: Updated `timetable.html` to ensure `semester` filters are only sent when valid, reconciling frontend-backend data types.
+3.  **Data Persistence**:
+    *   Switched from ORM-based migration to direct MongoDB queries for reliable data patching, ensuring `studentgroup` and `course` collections are correctly synchronized.

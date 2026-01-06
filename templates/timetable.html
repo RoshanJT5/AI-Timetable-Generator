@@ -605,7 +605,9 @@
                     const payload = {};
                     if (program) payload.program = program;
                     if (branch) payload.branch = branch;
-                    if (semester) payload.semester = parseInt(semester);
+                    // Only include semester if it's a valid positive number
+                    const semesterNum = parseInt(semester);
+                    if (semester && semesterNum > 0) payload.semester = semesterNum;
 
                     fetch('/timetable/generate', {
                         method: 'POST',

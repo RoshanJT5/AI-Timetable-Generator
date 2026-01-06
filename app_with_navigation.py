@@ -4800,6 +4800,33 @@ if __name__ == '__main__':
             print(f"Normalized availability for {fixed} faculty records.")
     except Exception as e:
         print(f"Availability normalization skipped due to error: {e}")
+    
+    # MIGRATION: Fix Semester=0 issue in existing data
+    try:
+        print("[MIGRATION] Checking for Semester=0 issues in StudentGroups...")
+        
+        # Access MongoDB directly with correct collection names
+        mongo_db = db.session._db
+        
+        # Fix StudentGroups with Semester=0 or None (correct collection: studentgroup)
+        result_groups = mongo_db['studentgroup'].update_many(
+            {'$or': [{'semester': 0}, {'semester': None}]},
+            {'$set': {'semester': 1}}
+        )
+        
+        # Fix Courses with Semester=0 or None (correct collection: course)
+        result_courses = mongo_db['course'].update_many(
+            {'$or': [{'semester': 0}, {'semester': None}]},
+            {'$set': {'semester': 1}}
+        )
+        
+        if result_groups.modified_count or result_courses.modified_count:
+            print(f"[MIGRATION] [OK] Fixed {result_groups.modified_count} groups and {result_courses.modified_count} courses with invalid semesters")
+        else:
+            print("[MIGRATION] [OK] No semester issues found - all data is clean!")
+    except Exception as e:
+        print(f"[MIGRATION] Semester fix skipped due to error: {e}")
+    
     app.run(debug=True, port=5000, use_reloader=False, threaded=True)
 
 # Vercel serverless function handler

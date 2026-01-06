@@ -1438,9 +1438,45 @@ class TimetableGenerator:
         
         problem += pulp.lpSum(objective_terms)
         
-        # Solve
-        solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=30, threads=2)
-        status = problem.solve(solver)
+        # Solve with Robust Failure Handling
+        import shutil
+        
+        # Check if CBC is actually available to avoid hard crashes
+        has_cbc = shutil.which("cbc") is not None
+        
+        try:
+            # 1. Try Default CBC
+            # PuLP usually bundles CBC, but sometimes it fails on specific OS configs
+            solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=30, threads=2)
+            status = problem.solve(solver)
+            
+        except (pulp.apis.core.PulpSolverError, Exception) as e:
+            print(f"[SCHEDULER] Primary solver (CBC) failed: {str(e)}. Attempting fallbacks...")
+            
+            # Fallback Options
+            status = None
+            fallbacks = [
+                ('CHOCO', pulp.CHOCO_CMD(msg=0)),
+                ('GLPK', pulp.GLPK_CMD(msg=0))
+            ]
+            
+            solved = False
+            for name, fb_solver in fallbacks:
+                if fb_solver.available():
+                    try:
+                        print(f"[SCHEDULER] Trying fallback solver: {name}")
+                        status = problem.solve(fb_solver)
+                        solved = True
+                        break
+                    except Exception as fe:
+                        print(f"[SCHEDULER] Fallback {name} failed: {fe}")
+            
+            if not solved:
+                 return {
+                    "success": False,
+                    "error": f"ILP solver failed. CBC crashed and no fallbacks (GLPK/Choco) were available. Error: {str(e)}",
+                    "warnings": warnings
+                }
         
         if status != pulp.LpStatusOptimal:
             return {
@@ -1624,8 +1660,42 @@ class TimetableGenerator:
                     objective_terms.append(assign_reward * c["var"])
         problem += pulp.lpSum(objective_terms)
 
-        solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=20, threads=2)
-        status = problem.solve(solver)
+        # Solve with Robust Failure Handling
+        import shutil
+        
+        try:
+            # Try Default CBC
+            solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=20, threads=2)
+            status = problem.solve(solver)
+            
+        except (pulp.apis.core.PulpSolverError, Exception) as e:
+            print(f"[ILP-FAST] CBC Solver failed: {str(e)}. Trying fallbacks...")
+            
+            # Fallback Options
+            status = None
+            fallbacks = [
+                ('GLPK', pulp.GLPK_CMD(msg=0)),
+                ('CHOCO', pulp.CHOCO_CMD(msg=0))
+            ]
+            
+            solved = False
+            for name, fb_solver in fallbacks:
+                if fb_solver.available():
+                    try:
+                        print(f"[ILP-FAST] Attempting fallback: {name}")
+                        status = problem.solve(fb_solver)
+                        solved = True
+                        break
+                    except Exception as fe:
+                        print(f"[ILP-FAST] Fallback {name} failed: {fe}")
+            
+            if not solved:
+                 return {
+                    "success": False,
+                    "error": f"ILP solver failed. CBC crashed and no fallbacks (GLPK/Choco) available. Error: {str(e)}",
+                    "warnings": warnings
+                }
+        
         if status != pulp.LpStatusOptimal:
             return {
                 "success": False,
